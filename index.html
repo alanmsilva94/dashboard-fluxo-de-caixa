@@ -1,0 +1,2209 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+  /* Tema salvo neste computador (padrao: clean). Aplicado antes de pintar. */
+  (function(){ var t = 'neon';
+    try{ t = localStorage.getItem('portal_tema_v2') || 'claro'; }catch(e){}
+    document.documentElement.classList.add(t === 'neon' ? 'tema-neon' : 'tema-claro'); })();
+</script>
+<title>Portal — Painel de Fluxo de Caixa</title>
+<!-- Bibliotecas via CDN (e necessario ter internet) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Noto+Serif:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* =====================================================================
+     DESIGN SYSTEM — tokens adaptados do layout de referencia (Material 3
+     "Financas Portal"). CSS proprio, sem Tailwind/CDN: o painel continua
+     funcionando aberto como arquivo local e sem internet.
+  ===================================================================== */
+  :root{
+    --logo-portal:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 110 44'><rect x='2' y='2' width='40' height='40' rx='10' fill='%23465d93'/><text x='22' y='31' font-family='Arial' font-size='24' font-weight='700' fill='white' text-anchor='middle'>P</text><text x='50' y='28' font-family='Arial' font-size='17' font-weight='700' fill='%23465d93'>Portal</text></svg>");
+    /* ---- Tema CLEAN (padrao): pagina branca / cinza muito claro ----
+       O menu lateral usa a paleta neon nos DOIS temas. */
+    --bg:#f5f6f9;            /* fundo da pagina: cinza bem claro */
+    --card:#ffffff;
+    --surf-low:#f5f7fb;
+    --surf:#eef1f7;
+    --surf-high:#e7ebf4;
+    --ink:#141a2e;
+    --ink-2:#5b6478;
+    --outline:#8a93a8;
+    --outline-2:#d9dee8;
+    --navy:#0a1128;          /* usado no menu lateral */
+    --navy-2:#132052;
+    --navy-3:#2a2f48;
+    --secondary:#0891b2;     /* ciano da paleta neon, em tom legivel no branco */
+    --secondary-lt:#67e8f9;
+    --muted-on-navy:#6f7bb0;
+    --gold:#b7791f;
+    --gold-2:#d69e2e;
+    --gold-lt:#fcd34d;
+    --ok:#059669;
+    --ok-bg:#e8f8f1;
+    --bad:#e11d48;
+    --bad-bg:#fdecf0;
+    --neutral:#8a93a8;
+    --line:#eceff5;
+    --neon:#22d3ee;
+    --neon-2:#a855f7;
+    --radius:12px;
+    --radius-sm:8px;
+    --shadow:0 1px 2px rgba(20,26,46,.04), 0 2px 10px rgba(20,26,46,.04);
+    --shadow-hover:0 2px 6px rgba(20,26,46,.06), 0 12px 28px rgba(20,26,46,.08);
+    --sidebar:256px;
+    --f-serif:'Noto Serif','Lora',Georgia,'Times New Roman',serif;
+    --f-sans:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --f-mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Consolas,monospace;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:var(--f-sans); font-size:14px; line-height:1.45;
+    -webkit-font-smoothing:antialiased;
+  }
+  button{ font-family:inherit; }
+  .ico{ width:20px; height:20px; fill:currentColor; flex:none; display:inline-block; vertical-align:middle; }
+  .ico.sm{ width:16px; height:16px; }
+  .logo-portal{
+    /* O logo fica uma unica vez no arquivo (antes eram duas copias base64) */
+    background:var(--logo-portal) center/contain no-repeat;
+  }
+  .sr-only{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:6px;
+    font-family:var(--f-sans); font-size:11px; line-height:14px; font-weight:700;
+    letter-spacing:.08em; text-transform:uppercase; color:var(--gold); margin:0;
+  }
+
+  /* ======================= ESTRUTURA DO APP ====================== */
+  #appContent{ display:none; }
+  .sidebar{
+    position:fixed; left:0; top:0; bottom:0; width:var(--sidebar); z-index:60;
+    background:var(--navy); display:flex; flex-direction:column; justify-content:space-between;
+    box-shadow:0 1px 8px rgba(0,0,0,.08); overflow-y:auto;
+  }
+  .sb-marca{ padding:16px; border-bottom:1px solid rgba(198,198,208,.1); }
+  .sb-marca > div{ display:flex; align-items:center; gap:10px; background:#fff; padding:8px; border-radius:var(--radius-sm); }
+  .sb-marca .logo-portal{ width:44px; height:32px; flex:none; }
+  .sb-marca b{ display:block; font-size:15px; line-height:1.2; color:var(--ink); }
+  .sb-marca small{ display:block; font-size:9.5px; font-weight:700; letter-spacing:.03em; text-transform:uppercase; color:var(--outline); white-space:nowrap; }
+  nav.tabs{ padding:12px 0; display:flex; flex-direction:column; gap:14px; }
+  .sb-grupo{ display:flex; flex-direction:column; }
+  .sb-grupo > span{ padding:4px 16px; font-family:var(--f-mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted-on-navy); }
+  nav.tabs button{
+    display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+    padding:9px 16px 9px 12px; border:0; border-left:4px solid transparent; background:none;
+    color:#f3f2ff; font-size:14px; cursor:pointer; transition:background .15s;
+  }
+  nav.tabs button .ico{ color:#dbe1ff; }
+  nav.tabs button:hover{ background:rgba(118,132,179,.2); color:#fff; }
+  nav.tabs button.active{ background:var(--navy-2); color:#fff; font-weight:700; border-left-color:var(--bad); }
+  nav.tabs button.active .ico{ color:#fff; }
+  .sb-rodape{ padding:14px 16px; border-top:1px solid rgba(198,198,208,.1); display:flex; flex-direction:column; gap:6px; }
+  .sb-rodape button{ display:flex; align-items:center; gap:8px; padding:6px 8px; border:0; border-radius:6px; background:none; color:#f3f2ff; font-size:12.5px; cursor:pointer; }
+  .sb-rodape button:hover{ background:rgba(118,132,179,.2); }
+  .sb-rodape small{ font-family:var(--f-mono); font-size:11px; color:var(--muted-on-navy); padding:0 8px; }
+  .area{ padding-left:var(--sidebar); min-height:100vh; display:flex; flex-direction:column; }
+
+  /* Barra superior: migalha + estado da base + acoes */
+  .topo{
+    position:sticky; top:0; z-index:40;
+    background:rgba(255,255,255,.96); backdrop-filter:blur(12px);
+    border-bottom:1px solid rgba(198,198,208,.45); box-shadow:0 1px 8px rgba(0,0,0,.03);
+  }
+  .topo-linha{ min-height:64px; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:8px 24px; }
+  .topo-esq{ display:flex; align-items:center; gap:12px; min-width:250px; flex:1 1 0; }
+  .btn-menu{ display:none; width:38px; height:38px; border:1px solid var(--outline-2); border-radius:var(--radius-sm); background:var(--card); color:var(--ink); cursor:pointer; align-items:center; justify-content:center; }
+  .migalha{ display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-2); white-space:nowrap; overflow:hidden; }
+  .migalha .sep{ color:var(--outline); }
+  .migalha b{ color:var(--ink); }
+  .asof{ margin:2px 0 0; font-family:var(--f-mono); font-size:11px; color:var(--outline); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .painel-base{ display:flex; align-items:center; gap:8px; flex-wrap:nowrap; justify-content:flex-end; min-width:0; flex:0 1 auto; }
+  .chip-base{
+    display:flex; align-items:center; gap:6px; max-width:240px; min-width:0; flex:0 3 auto;
+    padding:5px 10px; border-radius:6px; border:1px solid rgba(198,198,208,.6); background:var(--surf-low);
+    font-family:var(--f-mono); font-size:11px; color:var(--ink);
+  }
+  .chip-base .ico{ color:var(--secondary); }
+  .chip-base i{ width:8px; height:8px; border-radius:50%; background:var(--outline-2); flex:none; }
+  body.base-ok .chip-base i{ background:var(--ok); }
+  .painel-base-pasta{ margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .painel-base-pasta b{ font-weight:600; }
+  .base-barra{ display:flex; align-items:center; gap:8px; flex:none; }
+  .btn{
+    display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 12px;
+    border-radius:6px; border:1px solid var(--outline-2); background:var(--card); color:var(--ink);
+    font-size:12.5px; font-weight:500; cursor:pointer; white-space:nowrap; transition:.15s;
+  }
+  .btn .ico{ width:18px; height:18px; color:var(--ink-2); }
+  .btn:hover{ background:var(--surf-low); }
+  .btn:disabled{ opacity:.55; cursor:default; }
+  .btn.primario{ background:var(--navy); border-color:var(--navy); color:#fff; font-weight:600; box-shadow:var(--shadow); }
+  .btn.primario .ico{ color:#fff; }
+  .btn.primario:hover{ background:var(--navy-2); }
+  .btn.icone{ width:34px; padding:0; justify-content:center; }
+  .btn:disabled .ico-sync{ animation:girar 1s linear infinite; }
+  @keyframes girar{ to{ transform:rotate(360deg); } }
+  .faixa-status{ display:flex; align-items:center; gap:12px; padding:5px 24px; background:var(--surf-low); border-top:1px solid rgba(198,198,208,.3); min-height:28px; }
+  .base-status{ font-family:var(--f-mono); font-size:11.5px; color:var(--ink-2); line-height:1.45; }
+  .base-status.erro{ color:var(--bad); font-weight:600; }
+  .base-status.ok{ color:var(--ok); }
+  .base-prog{ flex:0 0 240px; margin-left:auto; }
+  .base-prog-txt{ display:block; font-family:var(--f-mono); font-size:10.5px; color:var(--ink-2); margin-bottom:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .base-prog-barra{ display:block; height:4px; background:var(--surf-high); border-radius:2px; overflow:hidden; }
+  .base-prog-barra i{ display:block; height:100%; background:var(--secondary); transition:width .2s; }
+
+  main{ width:100%; max-width:1440px; margin:0 auto; padding:24px 32px 32px; flex:1; }
+  footer{ padding:16px 32px 24px; display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; font-family:var(--f-mono); font-size:11px; color:var(--outline); max-width:1440px; margin:0 auto; width:100%; }
+
+  /* ========================== PAGINAS ========================== */
+  section.panel{ display:none; animation:fade .25s ease; }
+  section.panel.active{ display:flex; flex-direction:column; gap:24px; }
+  @keyframes fade{ from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;} }
+  .pg-cab{ display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  .pg-cab > div{ max-width:880px; }
+  .pg-cab .eyebrow i{ width:6px; height:6px; border-radius:50%; background:var(--secondary); }
+  .panel-title{ font-family:var(--f-serif); font-size:28px; line-height:36px; font-weight:600; letter-spacing:-.015em; margin:4px 0 4px; color:var(--ink); }
+  .panel-desc{ font-size:14px; color:var(--ink-2); margin:0; line-height:1.6; }
+  .pg-meta{
+    display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:var(--radius-sm);
+    background:var(--surf-low); box-shadow:var(--shadow); font-family:var(--f-mono); font-size:11px; color:var(--ink-2);
+  }
+  .pg-meta .ico{ color:var(--secondary); width:18px; height:18px; }
+  .pg-meta:empty{ display:none; }
+  .hint.pg-meta{ margin:0; }
+  .secao-tit{ display:flex; align-items:center; gap:10px; margin:8px 0 -8px; }
+  .secao-tit h2{ font-family:var(--f-serif); font-size:20px; line-height:28px; font-weight:600; margin:0; color:var(--ink); }
+  .secao-tit i{ width:10px; height:10px; border-radius:3px; }
+
+  .callout{
+    position:relative; overflow:hidden; background:var(--card); border-radius:var(--radius);
+    padding:16px 18px 16px 22px; box-shadow:var(--shadow); font-size:14px; line-height:1.6; color:var(--ink-2);
+  }
+  .callout::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--gold); }
+  .callout b{ color:var(--ink); }
+
+  /* KPIs */
+  .kpi-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:24px; }
+  .kpi{
+    position:relative; background:var(--card); border-radius:var(--radius); padding:20px 22px;
+    box-shadow:var(--shadow); display:flex; flex-direction:column; gap:6px; transition:box-shadow .2s;
+    overflow:hidden;
+  }
+  .kpi:hover{ box-shadow:var(--shadow-hover); }
+  .kpi::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--secondary-lt); }
+  .kpi.bad::before{ background:var(--bad); }
+  .kpi.good::before{ background:var(--ok); }
+  .kpi-label{ margin:0; font-size:11px; line-height:14px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--gold); }
+  .kpi-value{ margin:4px 0 2px; font-family:var(--f-mono); font-size:26px; line-height:32px; font-weight:600; letter-spacing:-.02em; color:var(--navy); }
+  .kpi-delta{
+    align-self:flex-start; display:inline-flex; align-items:center; gap:3px;
+    padding:2px 8px; border-radius:999px; background:var(--surf-high); color:var(--secondary);
+    font-family:var(--f-mono); font-size:11.5px; font-weight:600;
+  }
+  .kpi-delta.up{ background:var(--bad-bg); color:var(--bad); }
+  .kpi-delta.down{ background:var(--ok-bg); color:var(--ok); }
+  .kpi-note{ font-size:12px; color:var(--ink-2); }
+  .kpi-spark{ display:block; width:100%; height:30px; margin-top:4px; }
+  .kpi-spark polyline{ fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; vector-effect:non-scaling-stroke; }
+  .kpi-spark .area-spark{ stroke:none; opacity:.12; }
+
+  /* Cartoes */
+  .card{ background:var(--card); border-radius:var(--radius); padding:22px 24px; box-shadow:var(--shadow); min-width:0; }
+  .card-cab{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+  .card h3{ font-family:var(--f-serif); font-size:18px; line-height:26px; font-weight:600; margin:0; color:var(--ink); letter-spacing:-.01em; }
+  .card .hint{ font-size:12px; color:var(--ink-2); margin:2px 0 0; line-height:1.5; }
+  .card-cab .hint{ margin-bottom:0; }
+  .chart-wrap{ position:relative; height:320px; }
+  .chart-wrap.tall{ height:380px; }
+  .chart-wrap.secondary{ height:260px; }
+  .chart-wrap.donut{ height:250px; }
+  .grade{ display:grid; gap:24px; }
+  .g-2{ grid-template-columns:1fr 1fr; }
+  .g-3{ grid-template-columns:repeat(3,1fr); }
+  .g-2-1{ grid-template-columns:2fr 1fr; }
+  .g-5-7{ grid-template-columns:minmax(0,1fr) minmax(0,2fr); }
+  .g-2-1 > *, .g-2 > *, .g-3 > *{ min-width:0; }
+  .tbl-lateral td:not(:first-child), .tbl-lateral th{ white-space:nowrap; }
+  .tbl-lateral{ overflow:auto; max-height:360px; }
+  .g-5-7 > .card{ display:flex; flex-direction:column; }
+  .g-5-7 > .card > .chart-wrap{ flex:1; min-height:320px; }
+
+  /* Seletor de periodo dos graficos mensais */
+  .periodo{ display:inline-flex; gap:2px; padding:3px; border-radius:var(--radius-sm); background:var(--surf); }
+  .periodo button{ border:0; background:none; padding:3px 10px; border-radius:5px; font-family:var(--f-mono); font-size:11px; color:var(--ink-2); cursor:pointer; }
+  .periodo button:hover{ color:var(--ink); }
+  .periodo button.ativo{ background:var(--card); color:var(--navy); font-weight:600; box-shadow:var(--shadow); }
+
+  /* Legenda ranqueada das roscas */
+  .donut-legend{ list-style:none; margin:14px 0 0; padding:0; font-size:12px; }
+  .donut-legend li{ display:grid; grid-template-columns:22px 10px 1fr auto; gap:8px; align-items:center; padding:5px 8px; border-radius:6px; }
+  .donut-legend li:hover{ background:var(--surf-low); }
+  .donut-legend .rk{ font-family:var(--f-mono); font-size:11px; color:var(--outline); }
+  .donut-legend .rk:not(:empty)::before{ content:"#"; }
+  .donut-legend .chip{ width:10px; height:10px; border-radius:50%; display:block; }
+  .donut-legend .nm{ color:var(--ink); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .donut-legend .vl{ font-family:var(--f-mono); color:var(--ink-2); white-space:nowrap; }
+  .donut-legend .pc{ display:inline-block; min-width:48px; text-align:right; margin-left:8px; color:var(--ink); font-weight:700; }
+  .donut-legend li.tot{ border-top:1px solid var(--line); border-radius:0; margin-top:4px; padding-top:8px; }
+  .donut-legend li.tot .nm{ color:var(--outline); text-transform:uppercase; letter-spacing:.06em; font-size:10.5px; }
+  .donut-legend li.tot .vl{ color:var(--ink); font-weight:700; }
+
+  /* Aviso de dado ausente */
+  .aviso-dado{
+    font-family:var(--f-mono); font-size:11.5px; line-height:1.65; color:var(--ink-2);
+    background:var(--surf-low); border:1px dashed var(--outline-2); border-radius:var(--radius-sm);
+    padding:16px 18px; margin:6px 0 4px;
+  }
+  .aviso-dado b{ color:var(--ink); }
+  .aviso-dado code{ background:var(--card); border:1px solid var(--line); padding:1px 5px; border-radius:4px; }
+
+  /* Tabelas */
+  table.data{ width:100%; border-collapse:separate; border-spacing:0; font-size:13px; }
+  table.data th{
+    text-align:right; background:var(--surf-low); color:var(--ink);
+    padding:10px 12px; font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; white-space:nowrap;
+  }
+  table.data th:first-child{ border-top-left-radius:6px; border-bottom-left-radius:6px; }
+  table.data th:last-child{ border-top-right-radius:6px; border-bottom-right-radius:6px; }
+  table.data th:first-child, table.data td:first-child{ text-align:left; }
+  table.data td{ padding:9px 12px; text-align:right; border-bottom:1px solid var(--line); font-family:var(--f-mono); font-size:12.5px; color:var(--ink); }
+  table.data td:first-child{ font-family:var(--f-sans); font-weight:500; }
+  table.data tbody tr:last-child td{ border-bottom:0; }
+  table.data tbody tr:hover td{ background:rgba(243,242,255,.7); }
+  .pos{ color:var(--ok); }
+  .neg{ color:var(--bad); }
+  .neu{ color:var(--neutral); }
+  .status{ display:inline-block; padding:2px 8px; border-radius:999px; font-family:var(--f-mono); font-size:11px; font-weight:600; }
+  .status.sup{ background:var(--ok-bg); color:var(--ok); }
+  .status.def{ background:var(--bad-bg); color:var(--bad); }
+  .status.parc{ background:var(--surf-high); color:var(--navy-2); }
+
+  /* Tabela mensal (setor x mes) */
+  .tbl-ferramentas{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .busca{ position:relative; display:flex; align-items:center; }
+  .busca .ico{ position:absolute; left:10px; color:var(--outline); width:18px; height:18px; pointer-events:none; }
+  .busca input{ height:36px; width:240px; padding:0 12px 0 34px; border:1px solid transparent; border-radius:var(--radius-sm); background:var(--surf-low); color:var(--ink); font-size:13px; }
+  .busca input:focus{ outline:none; border-color:var(--secondary); box-shadow:0 0 0 3px rgba(70,93,147,.15); }
+  .tbl-scroll{ overflow-x:auto; border-radius:var(--radius-sm); }
+  table.data.mensal th, table.data.mensal td{ white-space:nowrap; padding-left:10px; padding-right:10px; }
+  table.data.mensal td{ font-size:12px; }
+  table.data.mensal thead th:first-child,
+  table.data.mensal tbody td:first-child{ position:sticky; left:0; z-index:2; text-align:left; box-shadow:1px 0 0 var(--line); }
+  /* A coluna fixa tem fundo proprio igual ao das demais celulas do cabecalho
+     (titulo "Setor" sempre visivel, tambem com rolagem horizontal). */
+  table.data.mensal thead th:first-child{ background:var(--surf-low); z-index:3; }
+  table.data.mensal tbody td:first-child{ background:var(--card); }
+  table.data.mensal tbody tr:hover td:first-child{ background:#f7f6ff; }
+  table.data.mensal tr.linha-total td{ background:var(--surf-low); border-top:2px solid rgba(11,27,68,.15); border-bottom:0; font-weight:700; color:var(--navy); }
+  table.data.mensal tr.linha-total td:first-child{ background:var(--surf-low); font-family:var(--f-sans); text-transform:uppercase; letter-spacing:.04em; font-size:12px; }
+  /* "Variacao" fica fixa na borda direita: sempre visivel, mesmo com
+     12 meses na tabela e rolagem horizontal */
+  table.data.mensal th.col-variacao, table.data.mensal td.col-variacao{
+    position:sticky; right:0; z-index:2; text-align:center; box-shadow:-1px 0 0 var(--line);
+  }
+  table.data.mensal th.col-variacao{ background:var(--surf-low); z-index:3; }
+  table.data.mensal td.col-variacao{ background:var(--card); }
+  table.data.mensal tbody tr:hover td.col-variacao{ background:#f7f6ff; }
+  table.data.mensal tr.linha-total td.col-variacao{ background:var(--surf-low); }
+  td.col-variacao span.pos, td.col-variacao span.neg{
+    display:inline-flex; align-items:center; gap:2px; padding:2px 9px; border-radius:999px; font-size:11.5px; font-weight:600;
+  }
+  td.col-variacao span.neg{ background:var(--bad-bg); }
+  td.col-variacao span.pos{ background:var(--ok-bg); }
+  td.col-variacao span.neg::before{ content:"\25B2"; font-size:8px; }
+  td.col-variacao span.pos::before{ content:"\25BC"; font-size:8px; }
+  .tbl-rodape{ display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:12px; font-size:12px; color:var(--outline); }
+  .legenda-cor{ display:flex; align-items:center; gap:6px; font-family:var(--f-mono); font-size:11px; }
+  .legenda-cor i{ width:8px; height:8px; border-radius:50%; }
+
+  /* Sem base carregada */
+  #avisoSemBase{ display:none; max-width:720px; margin:48px auto; padding:0 24px; }
+  body.sem-base #avisoSemBase{ display:block; }
+  body.sem-base nav.tabs, body.sem-base main{ display:none; }
+  body.sem-base #asofText{ visibility:hidden; }
+  #avisoSemBase .card{ text-align:center; padding:36px 32px; }
+  #avisoSemBase .ico{ width:40px; height:40px; color:var(--secondary); }
+  #avisoSemBase h3{ margin:12px 0 8px; }
+  #avisoSemBase p{ color:var(--ink-2); font-size:14px; line-height:1.65; margin:6px 0; }
+
+  /* ========================= RESPONSIVO ========================= */
+  @media (max-width:1280px){
+    .g-2-1, .g-5-7{ grid-template-columns:1fr; }
+    .btn .rotulo-longo{ display:none; }
+  }
+  @media (max-width:1150px){ .g-3{ grid-template-columns:1fr; } }
+  @media (max-width:1023px){
+    .sidebar{ transform:translateX(-100%); transition:transform .2s ease; }
+    body.menu-aberto .sidebar{ transform:none; }
+    body.menu-aberto .veu{ display:block; }
+    .veu{ display:none; position:fixed; inset:0; z-index:55; background:rgba(11,27,68,.35); }
+    .area{ padding-left:0; }
+    .btn-menu{ display:inline-flex; }
+    main{ padding:20px 16px 28px; }
+    .topo-linha{ padding:8px 16px; flex-wrap:wrap; }
+    .faixa-status{ padding:5px 16px; flex-wrap:wrap; }
+    .base-prog{ flex-basis:100%; }
+    .chip-base{ display:none; }
+    .topo-esq{ min-width:0; }
+    .g-2{ grid-template-columns:1fr; }
+  }
+  @media (max-width:640px){
+    .btn .rotulo{ display:none; }
+    .btn{ padding:0 10px; }
+    .panel-title{ font-size:22px; line-height:28px; }
+    .kpi-value{ font-size:22px; }
+    .card{ padding:18px 16px; }
+    .busca input{ width:100%; }
+    .busca, .tbl-ferramentas{ width:100%; }
+  }
+
+  /* =====================================================================
+     TEMA NEON (padrao) — painel escuro futurista
+     Sobrescreve apenas os tokens e os pontos com cor propria; a estrutura
+     do layout e a mesma do tema claro. Alternado pelo botao da barra superior.
+  ===================================================================== */
+  html.tema-neon{
+    --bg:#060a18; --card:#0e1530; --surf-low:#121b3c; --surf:#162048; --surf-high:#1c2858;
+    --ink:#e8eeff; --ink-2:#9aa6d1; --outline:#7682b8; --outline-2:#26325f;
+    --navy:#0a1128; --navy-2:#132052; --secondary:#5ab8ff; --secondary-lt:#3b82f6; --muted-on-navy:#6f7bb0;
+    --gold:#fbbf24; --gold-2:#fbbf24; --gold-lt:#fcd34d;
+    --ok:#22e39b; --ok-bg:rgba(34,227,155,.12); --bad:#ff4d8d; --bad-bg:rgba(255,77,141,.13); --neutral:#8b95c9;
+    --line:rgba(120,150,255,.12);
+    --neon:#22d3ee; --neon-2:#a855f7;
+    --shadow:0 0 0 1px rgba(90,184,255,.10), 0 10px 30px rgba(0,0,0,.45);
+    --shadow-hover:0 0 0 1px rgba(34,211,238,.35), 0 0 24px rgba(34,211,238,.16), 0 14px 36px rgba(0,0,0,.5);
+    color-scheme:dark;
+  }
+  html.tema-neon body{
+    background:
+      radial-gradient(1100px 560px at 88% -8%, rgba(168,85,247,.16), transparent 60%),
+      radial-gradient(900px 520px at 12% -4%, rgba(34,211,238,.12), transparent 60%),
+      linear-gradient(rgba(90,120,255,.035) 1px, transparent 1px) 0 0/100% 32px,
+      linear-gradient(90deg, rgba(90,120,255,.035) 1px, transparent 1px) 0 0/32px 100%,
+      var(--bg);
+    background-attachment:fixed;
+  }
+  html.tema-neon ::selection{ background:rgba(34,211,238,.35); }
+
+  /* Estrutura */
+  .sidebar{ background:radial-gradient(320px 260px at 0% 0%, rgba(34,211,238,.14), transparent 70%), radial-gradient(320px 300px at 100% 100%, rgba(168,85,247,.18), transparent 70%), linear-gradient(180deg,#0a1128 0%,#070b1c 100%); border-right:1px solid rgba(90,184,255,.12); }
+  .sb-marca > div{ box-shadow:0 0 0 1px rgba(34,211,238,.35), 0 0 18px rgba(34,211,238,.18); }
+  .sb-marca b{ color:#0b1b44; }
+  .sb-marca small{ color:#75767f; }
+  nav.tabs button.active{
+    background:linear-gradient(90deg, rgba(34,211,238,.20), rgba(34,211,238,0) 85%);
+    border-left-color:var(--neon); text-shadow:0 0 10px rgba(34,211,238,.7);
+    box-shadow:inset 6px 0 14px -8px var(--neon);
+  }
+  nav.tabs button.active .ico{ color:var(--neon); filter:drop-shadow(0 0 4px var(--neon)); }
+  html.tema-neon .topo{ background:rgba(7,11,28,.80); border-bottom-color:rgba(90,184,255,.16); box-shadow:0 1px 18px rgba(0,0,0,.35); }
+  html.tema-neon .faixa-status{ background:rgba(18,27,60,.55); border-top-color:rgba(90,184,255,.10); }
+  html.tema-neon .chip-base{ background:rgba(18,27,60,.8); border-color:var(--outline-2); }
+  html.tema-neon body.base-ok .chip-base i{ box-shadow:0 0 8px var(--ok); }
+  html.tema-neon .btn{ background:rgba(18,27,60,.85); border-color:var(--outline-2); color:var(--ink); }
+  html.tema-neon .btn .ico{ color:var(--ink-2); }
+  html.tema-neon .btn:hover{ border-color:rgba(34,211,238,.6); box-shadow:0 0 12px rgba(34,211,238,.18); }
+  .btn.primario{
+    background:linear-gradient(135deg,#0891b2 0%,#6d28d9 100%); border-color:transparent; color:#fff;
+    box-shadow:0 0 0 1px rgba(34,211,238,.35), 0 0 18px rgba(34,211,238,.30);
+  }
+  .btn.primario .ico{ color:#fff; }
+  .btn.primario:hover{ filter:brightness(1.12); box-shadow:0 0 0 1px rgba(34,211,238,.55), 0 0 26px rgba(34,211,238,.45); }
+  .base-prog-barra i{ background:linear-gradient(90deg,var(--neon),var(--neon-2)); box-shadow:0 0 8px var(--neon); }
+
+  /* Cartoes em "vidro" */
+  html.tema-neon .card, html.tema-neon .callout{
+    background:linear-gradient(180deg, rgba(20,29,64,.92) 0%, rgba(11,17,40,.92) 100%);
+    border:1px solid rgba(90,184,255,.12); box-shadow:var(--shadow);
+  }
+  html.tema-neon .card h3{ color:#f2f5ff; }
+  html.tema-neon .callout::before{ box-shadow:0 0 14px 1px var(--gold); }
+  html.tema-neon .panel-title{ background:linear-gradient(90deg,#f2f5ff 0%,#a5d8ff 60%,#c4b5fd 100%); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  html.tema-neon .secao-tit i{ box-shadow:0 0 10px currentColor; }
+  html.tema-neon .pg-meta{ border:1px solid rgba(90,184,255,.14); }
+  html.tema-neon .periodo{ background:rgba(18,27,60,.85); border:1px solid var(--outline-2); }
+  html.tema-neon .periodo button.ativo{ background:rgba(34,211,238,.14); color:var(--neon); box-shadow:0 0 10px rgba(34,211,238,.25), inset 0 0 0 1px rgba(34,211,238,.35); }
+
+  /* Tabelas */
+  html.tema-neon table.data th{ color:#b9c6ff; }
+  html.tema-neon table.data tbody tr:hover td{ background:rgba(34,211,238,.05); }
+  html.tema-neon table.data.mensal tbody tr:hover td:first-child,
+  html.tema-neon table.data.mensal tbody tr:hover td.col-variacao{ background:#122047; }
+  html.tema-neon table.data.mensal tr.linha-total td{ color:var(--ink); border-top-color:rgba(34,211,238,.35); }
+  html.tema-neon td.col-variacao span.neg{ box-shadow:0 0 10px rgba(255,77,141,.25); }
+  html.tema-neon td.col-variacao span.pos{ box-shadow:0 0 10px rgba(34,227,155,.22); }
+  html.tema-neon .status.parc{ color:var(--secondary); }
+  html.tema-neon .status.sup{ box-shadow:0 0 10px rgba(34,227,155,.2); }
+  html.tema-neon .status.def{ box-shadow:0 0 10px rgba(255,77,141,.22); }
+
+  /* ================= KPIs: efeito painel de LED / neon ================= */
+  .kpi{ --kc:var(--secondary); --kc-a:rgba(70,93,147,.25); --kc-b:rgba(70,93,147,.06); }
+  .kpi.good{ --kc:var(--ok); --kc-a:rgba(47,122,91,.28); --kc-b:rgba(47,122,91,.06); }
+  .kpi.bad{ --kc:var(--bad); --kc-a:rgba(193,68,59,.28); --kc-b:rgba(193,68,59,.06); }
+  /* "LED" de estado no canto do cartao (ambos os temas) */
+  .kpi::after{
+    content:""; position:absolute; top:16px; right:16px; width:8px; height:8px; border-radius:50%;
+    background:var(--kc); box-shadow:0 0 0 3px var(--kc-b);
+  }
+  .kpi .kpi-label{ padding-right:18px; }
+  /* valor sempre em uma linha (o '-' de valores negativos nao quebra), tamanho acompanha a largura */
+  .kpi{ container-type:inline-size; }
+  .kpi-value{ white-space:nowrap; font-size:clamp(18px, 1.6vw, 26px); font-size:clamp(17px, 11.5cqi, 26px); font-variant-numeric:tabular-nums; }
+  html:not(.tema-neon) .kpi{ background:linear-gradient(180deg,#ffffff 0%,#fbfaff 100%); }
+  html:not(.tema-neon) .kpi:hover{ transform:translateY(-2px); }
+  .kpi{ transition:box-shadow .25s, transform .25s; }
+
+  html.tema-neon .kpi{ --kc:#22d3ee; --kc-a:rgba(34,211,238,.38); --kc-b:rgba(34,211,238,.10); }
+  html.tema-neon .kpi.good{ --kc:#22e39b; --kc-a:rgba(34,227,155,.40); --kc-b:rgba(34,227,155,.10); }
+  html.tema-neon .kpi.bad{ --kc:#ff4d8d; --kc-a:rgba(255,77,141,.42); --kc-b:rgba(255,77,141,.11); }
+  html.tema-neon .kpi{
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,.018) 0 1px, transparent 1px 3px),          /* linhas de varredura */
+      radial-gradient(circle at 1px 1px, rgba(150,180,255,.10) 1px, transparent 1.3px) 0 0/7px 7px, /* matriz de LEDs */
+      radial-gradient(120% 90% at 100% 0%, var(--kc-b), transparent 55%),
+      linear-gradient(160deg, #111a3d 0%, #090f27 100%);
+    border:1px solid var(--kc-a);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.02), inset 0 0 26px var(--kc-b), 0 0 18px var(--kc-b), 0 12px 32px rgba(0,0,0,.5);
+  }
+  html.tema-neon .kpi:hover{
+    transform:translateY(-3px);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.03), inset 0 0 30px var(--kc-b), 0 0 28px var(--kc-a), 0 16px 40px rgba(0,0,0,.55);
+  }
+  html.tema-neon .kpi::before{ width:3px; background:var(--kc); box-shadow:0 0 12px 1px var(--kc); }
+  html.tema-neon .kpi::after{ box-shadow:0 0 6px var(--kc), 0 0 14px var(--kc); animation:led 2.6s ease-in-out infinite; }
+  @keyframes led{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
+  html.tema-neon .kpi-label{ color:var(--ink-2); letter-spacing:.12em; }
+  html.tema-neon .kpi-value{
+    font-family:'Share Tech Mono',var(--f-mono); font-size:clamp(18px, 1.6vw, 29px); font-size:clamp(16px, 10cqi, 29px); line-height:1.2; font-weight:400; letter-spacing:.01em;
+    color:#f2f8ff; text-shadow:0 0 4px var(--kc-a), 0 0 12px var(--kc-a), 0 0 24px var(--kc-b);
+  }
+  html.tema-neon .kpi-delta{ background:rgba(90,184,255,.10); color:#8fd3ff; border:1px solid rgba(90,184,255,.28); }
+  html.tema-neon .kpi-delta.up{ background:rgba(255,77,141,.10); color:#ff85b0; border-color:rgba(255,77,141,.40); box-shadow:0 0 10px rgba(255,77,141,.22); }
+  html.tema-neon .kpi-delta.down{ background:rgba(34,227,155,.10); color:#5ff0b8; border-color:rgba(34,227,155,.38); box-shadow:0 0 10px rgba(34,227,155,.20); }
+  html.tema-neon .kpi-note{ color:#8390c2; }
+  html.tema-neon .kpi-spark{ filter:drop-shadow(0 0 3px var(--spark)); }
+  html.tema-neon .kpi-spark polyline{ stroke-width:2.2; }
+
+  /* Botao de tema: icone certo para o tema atual */
+  #btnTema .i-sol{ display:none; }
+  html.tema-neon #btnTema .i-sol{ display:inline-block; }
+  html.tema-neon #btnTema .i-lua{ display:none; }
+
+  @media (prefers-reduced-motion:reduce){
+    html.tema-neon .kpi::after{ animation:none; }
+    .kpi, .kpi:hover{ transform:none !important; }
+  }
+
+  /* =====================================================================
+     TEMA CLEAN (padrao) — pagina branca / cinza muito claro.
+     O menu lateral continua neon (regras
+     globais acima); aqui ficam so os acabamentos da area de conteudo.
+  ===================================================================== */
+  html.tema-claro .topo{ background:rgba(255,255,255,.94); border-bottom-color:#e8ebf2; box-shadow:0 1px 0 rgba(20,26,46,.03); }
+  html.tema-claro .faixa-status{ background:#f8f9fc; border-top-color:#eef1f6; }
+  html.tema-claro .chip-base{ background:#f8f9fc; border-color:#e3e7ef; }
+  html.tema-claro body.base-ok .chip-base i{ box-shadow:0 0 0 3px rgba(5,150,105,.15), 0 0 6px rgba(5,150,105,.5); }
+  html.tema-claro .card, html.tema-claro .callout{ border:1px solid #edf0f5; }
+  html.tema-claro .callout::before{ background:linear-gradient(180deg,var(--neon),var(--neon-2)); }
+  html.tema-claro .btn{ border-color:#dfe3ec; }
+  html.tema-claro .btn:hover{ border-color:#a5e9f5; background:#f6fdff; }
+  html.tema-claro .periodo{ background:#f1f3f8; }
+  html.tema-claro .periodo button.ativo{ color:#0e7490; box-shadow:0 1px 3px rgba(20,26,46,.08), inset 0 0 0 1px rgba(8,145,178,.28); }
+  html.tema-claro .pg-meta{ background:#ffffff; border:1px solid #edf0f5; box-shadow:none; }
+  html.tema-claro .busca input{ background:#f5f7fb; border-color:#e8ebf2; }
+  html.tema-claro .busca input:focus{ border-color:#22d3ee; box-shadow:0 0 0 3px rgba(34,211,238,.18); }
+  html.tema-claro table.data.mensal tbody tr:hover td:first-child,
+  html.tema-claro table.data.mensal tbody tr:hover td.col-variacao{ background:#f5f8fc; }
+  html.tema-claro table.data tbody tr:hover td{ background:#f7f9fc; }
+
+  /* KPIs: cartao branco com acentos de LED (barra lateral com brilho suave,
+     LED de estado pulsando e um leve tom da cor do indicador no canto) */
+  html.tema-claro .kpi{ --kc:#0891b2; --kc-a:rgba(8,145,178,.30); --kc-b:rgba(8,145,178,.07); }
+  html.tema-claro .kpi.good{ --kc:#059669; --kc-a:rgba(5,150,105,.30); --kc-b:rgba(5,150,105,.07); }
+  html.tema-claro .kpi.bad{ --kc:#e11d48; --kc-a:rgba(225,29,72,.28); --kc-b:rgba(225,29,72,.06); }
+  html.tema-claro .kpi{
+    background:radial-gradient(90% 80% at 100% 0%, var(--kc-b), transparent 60%), #ffffff;
+    border:1px solid #edf0f5;
+  }
+  html.tema-claro .kpi:hover{ box-shadow:0 0 0 1px var(--kc-a), 0 12px 28px rgba(20,26,46,.08); }
+  html.tema-claro .kpi::before{ background:var(--kc); box-shadow:0 0 10px var(--kc-a); }
+  html.tema-claro .kpi::after{ box-shadow:0 0 0 3px var(--kc-b), 0 0 8px var(--kc-a); animation:led 2.6s ease-in-out infinite; }
+  html.tema-claro .kpi-label{ color:var(--ink-2); letter-spacing:.1em; }
+  html.tema-claro .kpi-value{ color:#141a2e; }
+  html.tema-claro .kpi-spark{ filter:drop-shadow(0 1px 1.5px var(--spark)); }
+  @media (prefers-reduced-motion:reduce){ html.tema-claro .kpi::after{ animation:none; } }
+
+  /* Avisos da ultima leitura da base (visiveis, sem precisar do console) */
+  .avisos-base{ border-top:1px solid rgba(183,121,31,.25); background:#fff8eb; padding:0 24px; font-size:12.5px; color:#7a4b06; }
+  .avisos-base summary{ cursor:pointer; padding:6px 0; font-weight:600; list-style:none; display:flex; align-items:center; gap:8px; }
+  .avisos-base summary::-webkit-details-marker{ display:none; }
+  .avisos-base summary::before{ content:"\26A0"; font-size:13px; }
+  .avisos-base summary::after{ content:"ver"; margin-left:auto; font-weight:500; text-decoration:underline; }
+  .avisos-base[open] summary::after{ content:"ocultar"; }
+  .avisos-base ul{ margin:0 0 8px; padding-left:20px; max-height:180px; overflow:auto; line-height:1.55; }
+  .avisos-base li{ margin:2px 0; }
+  html.tema-neon .avisos-base{ background:rgba(251,191,36,.08); border-top-color:rgba(251,191,36,.25); color:#fcd34d; }
+  @media (max-width:1023px){ .avisos-base{ padding:0 16px; } }
+
+  /* Mes em andamento (parcial) */
+  .nota-parcial{ display:flex; align-items:center; gap:6px; margin-top:4px !important; font-size:11.5px !important; color:var(--ink-2); }
+  .nota-parcial i{ width:12px; height:10px; border:1.5px solid var(--secondary); border-radius:2px; background:rgba(8,145,178,.10); flex:none; }
+  table.data.mensal th.col-parcial{ font-style:italic; }
+  table.data.mensal td.col-parcial{
+    color:var(--ink-2); font-style:italic;
+    background:repeating-linear-gradient(135deg, transparent 0 6px, rgba(8,145,178,.06) 6px 12px);
+  }
+  table.data.mensal tr.linha-total td.col-parcial{ color:var(--ink-2); }
+  html.tema-neon .nota-parcial i{ border-color:var(--neon); background:rgba(34,211,238,.12); box-shadow:0 0 6px rgba(34,211,238,.4); }
+  html.tema-neon table.data.mensal td.col-parcial{ background:repeating-linear-gradient(135deg, transparent 0 6px, rgba(34,211,238,.06) 6px 12px); }
+</style>
+
+</head>
+
+<body>
+
+<!-- Icones (SVG embutido: funcionam offline, sem fonte externa) -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-dashboard" viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></symbol>
+  <symbol id="i-entrada" viewBox="0 0 24 24"><path d="M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z"/></symbol>
+  <symbol id="i-saida" viewBox="0 0 24 24"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></symbol>
+  <symbol id="i-carteira" viewBox="0 0 24 24"><path d="M21 18v1c0 1.1-.9 2-2 2H5a2 2 0 0 1-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9a2 2 0 0 0-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8zm4-2.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></symbol>
+  <symbol id="i-setor" viewBox="0 0 24 24"><path d="M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10zm-2-8h-2v2h2v-2zm0 4h-2v2h2v-2z"/></symbol>
+  <symbol id="i-historico" viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.95 8.95 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></symbol>
+  <symbol id="i-cadeado" viewBox="0 0 24 24"><path d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-6 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm3.1-9H8.9V6a3.1 3.1 0 0 1 6.2 0v2z"/></symbol>
+  <symbol id="i-pasta" viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4a2 2 0 0 0-1.99 2L2 18c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zm0 12H4V8h16v10z"/></symbol>
+  <symbol id="i-sync" viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></symbol>
+  <symbol id="i-olho" viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></symbol>
+  <symbol id="i-olho-off" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 4.64 6.83l2.92 2.92A11.8 11.8 0 0 0 23 12c-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16A4.85 4.85 0 0 1 12 7zM2 4.27l2.74 2.74A11.8 11.8 0 0 0 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55A3 3 0 0 0 12 15c.22 0 .44-.03.65-.08l1.55 1.55A5 5 0 0 1 7.53 9.8zm4.31-.78l3.15 3.15.02-.16a3 3 0 0 0-3-3l-.17.01z"/></symbol>
+  <symbol id="i-escudo" viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></symbol>
+  <symbol id="i-busca" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"/></symbol>
+  <symbol id="i-seta" viewBox="0 0 24 24"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></symbol>
+  <symbol id="i-sol" viewBox="0 0 24 24"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5a6 6 0 1 0 0 12 6 6 0 0 0 0-12zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z"/></symbol>
+  <symbol id="i-lua" viewBox="0 0 24 24"><path d="M9 2c-1.05 0-2.05.16-3 .46 4.06 1.27 7 5.06 7 9.54s-2.94 8.27-7 9.54c.95.3 1.95.46 3 .46 5.52 0 10-4.48 10-10S14.52 2 9 2z"/></symbol>
+  <symbol id="i-calendario" viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14v11zM7 11h5v5H7z"/></symbol>
+</svg>
+
+<!-- ============================ APP ============================ -->
+<div id="appContent" style="display:block">
+<aside class="sidebar" id="sidebar">
+  <div>
+    <div class="sb-marca">
+      <div><div class="logo-portal" role="img" aria-label="Logo Portal"></div>
+        <div><b>Finanças Portal</b><small>Painel de Fluxo de Caixa</small></div></div>
+    </div>
+    <nav class="tabs" id="tabs" aria-label="Seções do painel">
+      <div class="sb-grupo"><span>Painel</span>
+        <button data-tab="visao" data-grupo="Painel" class="active"><svg class="ico"><use href="#i-dashboard"/></svg>Visão Geral</button>
+      </div>
+      <div class="sb-grupo"><span>Movimentação</span>
+        <button data-tab="entradas" data-grupo="Movimentação"><svg class="ico"><use href="#i-entrada"/></svg>Entradas</button>
+        <button data-tab="saidas" data-grupo="Movimentação"><svg class="ico"><use href="#i-saida"/></svg>Saídas</button>
+        <button data-tab="fluxo" data-grupo="Movimentação"><svg class="ico"><use href="#i-carteira"/></svg>Fluxo de Caixa</button>
+      </div>
+      <div class="sb-grupo"><span>Análise por setor</span>
+        <button data-tab="setores" data-grupo="Análise por setor"><svg class="ico"><use href="#i-setor"/></svg>Setores</button>
+        <button data-tab="historico" data-grupo="Análise por setor"><svg class="ico"><use href="#i-historico"/></svg>Histórico por Setor</button>
+      </div>
+    </nav>
+  </div>
+  <div class="sb-rodape">
+    <small>Demonstração · dados fictícios</small>
+  </div>
+</aside>
+<div class="veu" id="veuMenu"></div>
+
+<div class="area">
+<!-- Barra superior. A area "Base de dados" (ligada por base-local.js) fica
+     aqui: a base (.xlsx) e lida da pasta escolhida ao abrir o painel, e
+     "Atualizar Dashboard" rele a pasta sem recarregar a pagina. -->
+<header class="topo">
+  <div class="topo-linha">
+    <div class="topo-esq">
+      <button type="button" class="btn-menu" id="btnMenu" aria-label="Abrir menu"><svg class="ico"><use href="#i-menu"/></svg></button>
+      <div style="min-width:0">
+        <div class="migalha"><span>Painel Financeiro</span><span class="sep">/</span><span id="migalhaGrupo">Painel</span><span class="sep">/</span><b id="migalhaSecao">Visão Geral</b></div>
+        <p class="asof" id="asofText">Valores em R$ · MM = milhões de Reais</p>
+      </div>
+    </div>
+    <section class="painel-base" id="painelBase" aria-label="Base de dados">
+      <div class="chip-base"><svg class="ico sm"><use href="#i-pasta"/></svg><p class="painel-base-pasta" id="pastaBase">Nenhuma pasta selecionada.</p><i></i></div>
+      <div class="base-barra">
+        <button type="button" class="btn" id="btnBasePasta" title="Selecionar a pasta das planilhas"><svg class="ico"><use href="#i-pasta"/></svg><span class="rotulo">Selecionar pasta<span class="rotulo-longo"> da base</span></span></button>
+        <button type="button" class="btn primario" id="btnBaseAtualizar" title="Reler as planilhas e atualizar o dashboard"><svg class="ico ico-sync"><use href="#i-sync"/></svg><span class="rotulo">Atualizar Dashboard</span></button>
+        <button type="button" class="btn icone" id="btnTema" title="Alternar tema (Clean / Neon escuro)" aria-label="Alternar tema"><svg class="ico i-sol"><use href="#i-sol"/></svg><svg class="ico i-lua"><use href="#i-lua"/></svg></button>
+        <button type="button" class="btn icone" id="btnBaseExportar" title="Exportar base (dados.js)" aria-label="Exportar base"><svg class="ico"><use href="#i-download"/></svg></button>
+        <input type="file" id="inputBasePasta" webkitdirectory directory multiple hidden>
+      </div>
+    </section>
+  </div>
+  <div class="faixa-status">
+    <span class="base-status" id="statusBase" role="status" aria-live="polite"></span>
+    <div class="base-prog" id="progressoBase" style="display:none"></div>
+  </div>
+</header>
+
+<div id="avisoSemBase">
+  <div class="card">
+    <svg class="ico"><use href="#i-pasta"/></svg>
+    <h3>Base de dados ainda não carregada</h3>
+    <p>Clique em <b>Selecionar pasta da base</b> (no alto da página) e escolha a pasta principal da base —
+       a que contém as subpastas <code>Entradas</code> (<code>Entradas_2026.xlsx</code>…) e
+       <code>Saídas</code> (<code>Saidas_2026.xlsx</code>…). As subpastas são lidas automaticamente.</p>
+    <p>Quando as planilhas forem atualizadas ou substituídas, basta clicar em
+       <b>Atualizar Dashboard</b> — não é preciso sair nem entrar de novo.</p>
+  </div>
+</div>
+
+<main>
+
+  <!-- ===================== VISÃO GERAL ===================== -->
+  <section class="panel active" id="panel-visao">
+    <div class="pg-cab">
+      <div>
+        <p class="eyebrow">Resumo executivo consolidado</p>
+        <p class="panel-title">Visão Geral das Finanças</p>
+        <p class="panel-desc">Como entidade do terceiro setor, o indicador central não é "lucro", e sim o <b>equilíbrio entre entradas e saídas</b> e a <b>sustentabilidade do caixa</b> ao longo do tempo.</p>
+      </div>
+    </div>
+
+    <div class="callout" id="calloutVisao"></div>
+    <div class="kpi-grid" id="kpi-visao"></div>
+
+    <div class="grade g-2-1">
+      <div class="card">
+        <div class="card-cab">
+          <div><h3>Entradas × Saídas (mensal)</h3><p class="hint">Média móvel de 12 meses</p></div>
+          <div class="periodo" data-chart="chartVisaoLinhas"><button data-meses="12">12m</button><button data-meses="24">24m</button><button data-meses="60">5 anos</button><button data-meses="0" class="ativo">Tudo</button></div>
+        </div>
+        <div class="chart-wrap"><canvas id="chartVisaoLinhas"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-cab"><div><h3>Resultado operacional anual</h3><p class="hint">Soma do fluxo de caixa (entradas – saídas) por ano</p></div></div>
+        <div class="chart-wrap"><canvas id="chartVisaoAnual"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-cab"><div><h3>Gastos por setor — 2025 vs. 2026 (média mensal)</h3><p class="hint">Comparativo dos setores de maior representatividade orçamentária</p></div></div>
+      <div class="chart-wrap tall"><canvas id="chartVisaoSetores"></canvas></div>
+    </div>
+  </section>
+
+  <!-- ===================== ENTRADAS ===================== -->
+  <section class="panel" id="panel-entradas">
+    <div class="pg-cab">
+      <div>
+        <p class="eyebrow">Movimentação financeira</p>
+        <p class="panel-title">Entradas</p>
+        <p class="panel-desc">Total de receitas mensais da instituição (dízimos, ofertas e demais entradas).</p>
+      </div>
+    </div>
+    <div class="kpi-grid" id="kpi-entradas"></div>
+    <div class="grade g-2-1">
+      <div class="card">
+        <div class="card-cab">
+          <div><h3>Entradas mensais</h3><p class="hint">Barras = valor do mês · linha = tendência (média móvel de 6 meses)</p></div>
+          <div class="periodo" data-chart="chartEntradasMensal"><button data-meses="12">12m</button><button data-meses="24">24m</button><button data-meses="60">5 anos</button><button data-meses="0" class="ativo">Tudo</button></div>
+        </div>
+        <div class="chart-wrap"><canvas id="chartEntradasMensal"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-cab"><div><h3>Média mensal / ano</h3><p class="hint"><span class="pos">Verde</span> = aumento · <span class="neg">verm.</span> = redução</p></div></div>
+        <div class="tbl-lateral"><table class="data" id="tblEntradas"></table></div>
+      </div>
+    </div>
+    <div class="grade g-2">
+      <div class="card">
+        <div class="card-cab"><div><h3>Média mensal por ano</h3></div></div>
+        <div class="chart-wrap secondary"><canvas id="chartEntradasAnual"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-cab"><div><h3>Média histórica por mês</h3><p class="hint">Sazonalidade — média de cada mês do calendário</p></div></div>
+        <div class="chart-wrap secondary"><canvas id="chartEntradasMediaMes"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== SAÍDAS ===================== -->
+  <section class="panel" id="panel-saidas">
+    <div class="pg-cab">
+      <div>
+        <p class="eyebrow">Movimentação financeira</p>
+        <p class="panel-title">Saídas</p>
+        <p class="panel-desc">Total de despesas mensais da instituição (dados fictícios de demonstração).</p>
+      </div>
+    </div>
+    <div class="kpi-grid" id="kpi-saidas"></div>
+    <div class="grade g-2-1">
+      <div class="card">
+        <div class="card-cab">
+          <div><h3>Saídas mensais</h3><p class="hint">Barras = valor do mês · linha = tendência (média móvel de 6 meses)</p></div>
+          <div class="periodo" data-chart="chartSaidasMensal"><button data-meses="12">12m</button><button data-meses="24">24m</button><button data-meses="60">5 anos</button><button data-meses="0" class="ativo">Tudo</button></div>
+        </div>
+        <div class="chart-wrap"><canvas id="chartSaidasMensal"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-cab"><div><h3>Média mensal / ano</h3><p class="hint"><span class="neg">Verm.</span> = aumento · <span class="pos">verde</span> = redução</p></div></div>
+        <div class="tbl-lateral"><table class="data" id="tblSaidas"></table></div>
+      </div>
+    </div>
+    <div class="grade g-2">
+      <div class="card">
+        <div class="card-cab"><div><h3>Média mensal por ano</h3></div></div>
+        <div class="chart-wrap secondary"><canvas id="chartSaidasAnual"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-cab"><div><h3>Média histórica por mês</h3><p class="hint">Sazonalidade — média de cada mês do calendário</p></div></div>
+        <div class="chart-wrap secondary"><canvas id="chartSaidasMediaMes"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== FLUXO DE CAIXA ===================== -->
+  <section class="panel" id="panel-fluxo">
+    <div class="pg-cab">
+      <div>
+        <p class="eyebrow">Movimentação financeira mensal</p>
+        <p class="panel-title">Fluxo de Caixa &amp; Resultado Operacional</p>
+        <p class="panel-desc">Resultado mensal (entradas – saídas). Valores negativos indicam meses em que as saídas superaram as entradas — o principal indicador de sustentabilidade financeira da instituição.</p>
+      </div>
+    </div>
+    <div class="kpi-grid" id="kpi-fluxo"></div>
+    <div class="card">
+      <div class="card-cab">
+        <div><h3>Fluxo de caixa mensal</h3><p class="hint"><span class="pos">Verde</span> = superávit · <span class="neg">magenta</span> = déficit · linha = tendência (média móvel de 6 meses)</p></div>
+        <div class="periodo" data-chart="chartFluxoMensal"><button data-meses="12">12m</button><button data-meses="24">24m</button><button data-meses="60">5 anos</button><button data-meses="0" class="ativo">Tudo</button></div>
+      </div>
+      <div class="chart-wrap tall"><canvas id="chartFluxoMensal"></canvas></div>
+    </div>
+    <div class="grade g-5-7">
+      <div class="card">
+        <div class="card-cab"><div><h3>Resultado operacional acumulado por ano</h3><p class="hint">Saldo líquido de cada exercício</p></div></div>
+        <div class="chart-wrap"><canvas id="chartFluxoAnual"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-cab"><div><h3>Demonstrativo anual do fluxo</h3><p class="hint">Variação do resultado: <span class="pos">verde</span> = melhora · <span class="neg">verm.</span> = piora</p></div></div>
+        <div class="tbl-lateral" style="max-height:none"><table class="data" id="tblFluxo"></table></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== SETORES ===================== -->
+  <section class="panel" id="panel-setores">
+    <div class="pg-cab">
+      <div>
+        <p class="eyebrow">Distribuição e alocação de recursos</p>
+        <p class="panel-title">Gastos por Setor</p>
+        <p class="panel-desc">Distribuição das saídas por área de aplicação. As roscas trazem o percentual de cada fatia; o nome, o valor e a participação de <b>todos</b> os setores ficam na lista ordenada logo abaixo de cada gráfico.</p>
+      </div>
+      <p class="hint pg-meta" id="asofSetores"></p>
+    </div>
+
+    <div class="grade g-3">
+      <div class="card">
+        <p class="eyebrow">Exercício anterior</p>
+        <h3>Composição de gastos — 2025</h3>
+        <p class="hint" id="hintSetores2025">Média mensal</p>
+        <div class="chart-wrap donut"><canvas id="chartSetores2025"></canvas></div>
+        <ul class="donut-legend" id="legSetores2025"></ul>
+      </div>
+      <div class="card">
+        <p class="eyebrow" style="color:var(--secondary)">Exercício vigente</p>
+        <h3>Composição de gastos — 2026</h3>
+        <p class="hint" id="hintSetores2026">Média mensal</p>
+        <div class="chart-wrap donut"><canvas id="chartSetores2026"></canvas></div>
+        <ul class="donut-legend" id="legSetores2026"></ul>
+      </div>
+      <div class="card" id="cardSetoresMes">
+        <p class="eyebrow" style="color:var(--ink-2)">Competência atual</p>
+        <h3 id="tituloSetoresMes">Composição de gastos — último mês fechado</h3>
+        <p class="hint" id="hintSetoresMes">Valores do mês</p>
+        <div class="chart-wrap donut" id="wrapSetoresMes"><canvas id="chartSetoresMes"></canvas></div>
+        <ul class="donut-legend" id="legSetoresMes"></ul>
+        <div id="avisoSetoresMes"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-cab"><div><p class="eyebrow">Trajetória setorial</p><h3 id="tituloEvolucaoSetores">Evolução — Operações, Tecnologia e Administrativo</h3><p class="hint">Média mensal por ano (R$)</p></div></div>
+      <div class="chart-wrap tall"><canvas id="chartSetoresEvolucao"></canvas></div>
+      <div id="avisoEvolucaoEventos"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-cab"><div><h3>Tabela — média mensal por setor</h3><p class="hint">2025 vs. 2026 · <span class="neg">verm.</span> = aumento · <span class="pos">verde</span> = redução</p></div></div>
+      <div class="tbl-scroll"><table class="data" id="tblSetores"></table></div>
+    </div>
+
+    <div class="card">
+      <div class="card-cab">
+        <div><p class="eyebrow">Demonstrativo analítico</p><h3 id="tituloSetoresMensal">Tabela — evolução mensal por setor</h3>
+          <p class="hint" id="hintSetoresMensal">Gasto de cada setor mês a mês no ano corrente</p></div>
+        <div class="tbl-ferramentas">
+          <label class="busca"><svg class="ico"><use href="#i-busca"/></svg><span class="sr-only">Filtrar setor</span>
+            <input type="search" id="filtroSetorMensal" placeholder="Filtrar setor..."></label>
+          <button type="button" class="btn" id="btnCsvMensal"><svg class="ico"><use href="#i-download"/></svg><span class="rotulo">Exportar CSV</span></button>
+        </div>
+      </div>
+      <div class="tbl-scroll"><table class="data mensal" id="tblSetoresMensal"></table></div>
+      <div id="avisoSetoresMensal"></div>
+      <div class="tbl-rodape">
+        <span id="contagemSetoresMensal"></span>
+        <span class="legenda-cor"><i style="background:var(--ok)"></i>Redução de despesa <i style="background:var(--bad);margin-left:8px"></i>Aumento de despesa</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== HISTÓRICO POR SETOR ===================== -->
+  <section class="panel" id="panel-historico">
+    <div class="pg-cab">
+      <div>
+        <p class="eyebrow">Análise por setor</p>
+        <p class="panel-title">Histórico por Setor</p>
+        <p class="panel-desc">Evolução mensal completa de Administrativo, Operações, Tecnologia e Eventos. Série mensal completa, a partir do primeiro mês da base.</p>
+      </div>
+      <p class="hint pg-meta" id="asofHistorico"></p>
+    </div>
+
+    <div class="secao-tit"><i style="background:var(--navy)"></i><h2>Administrativo</h2></div>
+    <div class="kpi-grid" id="kpi-hist-administrativo"></div>
+    <div class="grade g-2-1">
+      <div class="card">
+        <div class="card-cab"><div><h3>Administrativo — gastos mensais</h3><p class="hint">Barras = valor do mês · linha = tendência (média móvel de 6 meses)</p></div></div>
+        <div class="chart-wrap"><canvas id="chartHistAdministrativo"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-cab"><div><h3>Média mensal / ano</h3></div></div>
+        <div class="tbl-lateral"><table class="data" id="tblHistAdministrativo"></table></div>
+      </div>
+    </div>
+
+    <div class="secao-tit"><i style="background:var(--bad)"></i><h2>Operações</h2></div>
+    <div class="kpi-grid" id="kpi-hist-operacoes"></div>
+    <div class="grade g-2-1">
+      <div class="card">
+        <div class="card-cab"><div><h3>Operações — gastos mensais</h3><p class="hint">Barras = valor do mês · linha = tendência (média móvel de 6 meses)</p></div></div>
+        <div class="chart-wrap"><canvas id="chartHistOperacoes"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-cab"><div><h3>Média mensal / ano</h3></div></div>
+        <div class="tbl-lateral"><table class="data" id="tblHistOperacoes"></table></div>
+      </div>
+    </div>
+
+    <div class="secao-tit"><i style="background:var(--gold-2)"></i><h2>Tecnologia</h2></div>
+    <div class="kpi-grid" id="kpi-hist-tecnologia"></div>
+    <div class="grade g-2-1">
+      <div class="card">
+        <div class="card-cab"><div><h3>Tecnologia — gastos mensais</h3><p class="hint">Barras = valor do mês · linha = tendência (média móvel de 6 meses)</p></div></div>
+        <div class="chart-wrap"><canvas id="chartHistTecnologia"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-cab"><div><h3>Média mensal / ano</h3></div></div>
+        <div class="tbl-lateral"><table class="data" id="tblHistTecnologia"></table></div>
+      </div>
+    </div>
+
+    <div class="secao-tit"><i style="background:var(--ok)"></i><h2>Eventos</h2></div>
+    <div class="kpi-grid" id="kpi-hist-eventos"></div>
+    <div class="grade g-2-1" id="rowHistEventos">
+      <div class="card">
+        <div class="card-cab"><div><h3>Eventos — gastos mensais</h3><p class="hint">Barras = valor do mês · linha = tendência (média móvel de 6 meses)</p></div></div>
+        <div class="chart-wrap"><canvas id="chartHistEventos"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-cab"><div><h3>Média mensal / ano</h3></div></div>
+        <div class="tbl-lateral"><table class="data" id="tblHistEventos"></table></div>
+      </div>
+    </div>
+    <div id="avisoHistEventos"></div>
+  </section>
+
+</main>
+
+<footer><span>Finanças Portal — Projeto de portfólio · dados fictícios · Valores em Reais (R$)</span><span>Instituição Exemplo · datas no formato brasileiro</span></footer>
+</div><!-- /.area -->
+</div><!-- /#appContent -->
+
+
+<script>
+/* =====================================================================
+   ORIGEM DOS DADOS
+   Este painel NAO guarda nenhum dado financeiro no codigo. Os numeros
+   sao lidos das planilhas .xlsx da pasta escolhida pelo usuario (botao
+   "Selecionar pasta da base"), direto no navegador, por base-local.js.
+   Nada e enviado a servidores. Para testar, use a pasta "bd_exemplo"
+   (dados ficticios gerados por gerar_dados_exemplo.py).
+
+   Este projeto de portfolio nao tem autenticacao: ele e uma demo
+   publica com dados ficticios. Em um ambiente real, controle o acesso
+   ao arquivo/pasta no servidor ou na rede.
+===================================================================== */
+function baseCarregada(){
+  return !!(window.DADOS_DASHBOARD && window.DADOS_DASHBOARD.dados);
+}
+
+/* Entra na pagina principal com ou sem base carregada (dados = null).
+   O desenho do dashboard (ou do aviso "base nao carregada") fica a cargo
+   de __renderDashboard; a leitura das planilhas, da area "Base de dados". */
+window.__entrarComBase = function(dados){
+  document.getElementById('appContent').style.display = 'block';
+  window.__renderDashboard(dados);
+  // Avisa base-local.js (verificacao automatica da pasta, se ja permitida)
+  document.dispatchEvent(new CustomEvent('portal:ready'));
+};
+</script>
+
+<script>
+(function(){
+
+let charts = [];           // todas as instâncias Chart.js ativas
+let appState = null;       // dados da base em uso
+let tabsBound = false;
+let tabelaMensalAtual = null;  // numeros da tabela "evolucao mensal por setor" (para CSV)
+
+/* Formatadores a prova de dado ausente: valor inexistente, NaN ou infinito
+   (divisao por zero) vira "—" em vez de derrubar o dashboard. */
+function valido(v){ return typeof v === 'number' && isFinite(v); }
+function fmtBRL(v, casas){
+  if(!valido(v)) return '—';
+  casas = casas===undefined?0:casas;
+  return v.toLocaleString('pt-BR', {style:'currency', currency:'BRL', minimumFractionDigits:casas, maximumFractionDigits:casas});
+}
+function fmtBRLc(v){ return fmtBRL(v,2); }
+function fmtPct(v){
+  if(!valido(v)) return '—';
+  return (v>=0?'+':'') + v.toFixed(1).replace('.',',') + '%';
+}
+function moneyTick(v){
+  if(Math.abs(v) >= 1000000) return (v/1000000).toLocaleString('pt-BR',{maximumFractionDigits:1}) + 'MM';
+  return v.toLocaleString('pt-BR');
+}
+function movingAvg(arr, w){
+  return arr.map((_,i)=>{
+    if(i < w-1) return null;
+    let s=0, n=0;
+    for(let j=i-w+1;j<=i;j++){
+      const v = arr[j];
+      if(v===null || v===undefined || isNaN(v)) continue;
+      s+=v; n++;
+    }
+    return n ? s/n : null;   // ignora meses sem dado em vez de propagar NaN
+  });
+}
+function totaisPorAno(arr, anosArr){
+  const map = {};
+  arr.forEach((v,i)=>{
+    const a = anosArr[i];
+    if(!map[a]) map[a] = {soma:0, n:0};
+    map[a].soma += v; map[a].n += 1;
+  });
+  return map;
+}
+function lastYearFull(map){
+  const anos = Object.keys(map).map(Number).sort((a,b)=>a-b);
+  for(let i=anos.length-1;i>=0;i--){ if(map[anos[i]].n===12) return anos[i]; }
+  return anos[anos.length-1];
+}
+let sparkSeq = 0;
+function sparkSVG(vals, cor){
+  const v = (vals||[]).filter(x=> x!==null && x!==undefined && isFinite(x));
+  if(v.length < 2) return '';
+  const min = Math.min(...v), max = Math.max(...v), r = (max-min) || 1;
+  const pts = v.map((y,i)=> `${(i/(v.length-1)*100).toFixed(2)},${(27-(y-min)/r*24).toFixed(2)}`).join(' ');
+  const id = 'spk' + (++sparkSeq);
+  return `<svg class="kpi-spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true" style="--spark:${cor}">`
+    + `<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${cor}" stop-opacity=".45"/><stop offset="1" stop-color="${cor}" stop-opacity="0"/></linearGradient></defs>`
+    + `<polygon fill="url(#${id})" points="0,30 ${pts} 100,30"/><polyline stroke="${cor}" points="${pts}"/></svg>`;
+}
+function renderKPIs(containerId, items){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  el.innerHTML = items.map(it=>{
+    const dirClass = it.dir==='good' ? 'good' : (it.dir==='bad' ? 'bad' : '');
+    const deltaClass = it.dir==='good' ? 'down' : (it.dir==='bad' ? 'up' : '');
+    return `<div class="kpi ${dirClass}">
+      <p class="kpi-label">${it.label}</p>
+      <p class="kpi-value">${it.value}</p>
+      ${it.delta ? `<span class="kpi-delta ${deltaClass}">${it.delta}</span>` : ''}
+      ${it.note ? `<div class="kpi-note">${it.note}</div>` : ''}
+      ${it.spark ? sparkSVG(it.spark, it.sparkCor || COR.secondary) : ''}
+    </div>`;
+  }).join('');
+}
+/* =====================================================================
+   TEMAS DOS GRAFICOS
+   Dois temas completos: "neon" (painel escuro futurista, padrao) e "claro"
+   (o visual institucional anterior, refinado). Todas as cores dos graficos
+   saem daqui -- nenhum grafico tem cor fixa no codigo.
+===================================================================== */
+const TEMAS = {
+  neon: {
+    neon:true,
+    teal:'#22D3EE', tealLt:'#818CF8', coral:'#FF4D8D', coralLt:'#FDA4C4',
+    gold:'#FBBF24', ok:'#22E39B', secondary:'#5AB8FF', neutral:'#8B95C9',
+    grid:'rgba(120,150,255,.11)', text:'#9AA6D1', ink:'#E8EEFF', card:'#0F1631',
+    tooltipBg:'rgba(8,13,32,.94)', tooltipBorda:'rgba(34,211,238,.55)', tooltipTitulo:'#E8EEFF', tooltipTexto:'#B8C4F0',
+    glowLinha:14, glowBarra:10, glowRosca:16, glowNeutro:'rgba(90,184,255,.45)', sombraY:0, alfaBrilho:.8,
+    alfaBaseBarra:.28, alfaArea:.30,
+    setores:['#22D3EE','#A855F7','#FBBF24','#FF4D8D','#3B82F6','#22E39B','#F472B6','#818CF8','#2DD4BF','#94A3B8']
+  },
+  claro: {                 /* "clean": pagina clara, acentos da paleta neon */
+    neon:false,
+    teal:'#0891B2', tealLt:'#8B5CF6', coral:'#E11D74', coralLt:'#F9A8D4',
+    gold:'#F59E0B', ok:'#10B981', secondary:'#0891B2', neutral:'#8A93A8',
+    grid:'#EEF1F6', text:'#5B6478', ink:'#141A2E', card:'#FFFFFF',
+    tooltipBg:'rgba(10,17,40,.94)', tooltipBorda:'rgba(34,211,238,.55)', tooltipTitulo:'#FFFFFF', tooltipTexto:'#C9D4F5',
+    glowLinha:8, glowBarra:6, glowRosca:12, glowNeutro:'rgba(20,26,46,.12)', sombraY:3,
+    alfaBrilho:.30, alfaBaseBarra:.38, alfaArea:.14,
+    setores:['#0891B2','#8B5CF6','#F59E0B','#E11D74','#3B82F6','#10B981','#EC4899','#6366F1','#14B8A6','#94A3B8']
+  }
+};
+const COR = {};                 // paleta ativa (mutavel: troca junto com o tema)
+let paletaSetores = [];
+let temaAtivo = 'neon';
+
+function hexA(hex, a){
+  if(typeof hex !== 'string' || hex[0] !== '#') return hex;
+  const h = hex.length === 4 ? hex.replace(/#(.)(.)(.)/, '#$1$1$2$2$3$3') : hex;
+  const n = parseInt(h.slice(1), 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+
+function configurarTemaGraficos(nome){
+  temaAtivo = TEMAS[nome] ? nome : 'neon';
+  const t = TEMAS[temaAtivo];
+  Object.keys(COR).forEach(k=> delete COR[k]);
+  Object.assign(COR, t);
+  paletaSetores = t.setores.slice();
+
+  const d = Chart.defaults;
+  d.font.family = "'IBM Plex Mono', monospace";
+  d.font.size = 11;
+  d.color = t.text;
+  d.borderColor = t.grid;
+  d.normalized = true;                         // dados ja ordenados: menos trabalho no parse
+  d.animation.duration = 650;
+  d.animation.easing = 'easeOutQuart';
+  d.elements.line.borderCapStyle = 'round';
+  d.elements.line.borderJoinStyle = 'round';
+  d.elements.point.hoverRadius = 5;
+  d.elements.point.hoverBorderWidth = 2;
+  d.scale.border.display = false;              // sem linha de eixo: so a grade tracejada
+  d.scale.border.dash = [3, 4];
+  const lg = d.plugins.legend.labels;
+  lg.usePointStyle = true; lg.pointStyle = 'rectRounded'; lg.padding = 14;
+  const tt = d.plugins.tooltip;
+  tt.backgroundColor = t.tooltipBg; tt.borderColor = t.tooltipBorda; tt.borderWidth = 1;
+  tt.titleColor = t.tooltipTitulo; tt.bodyColor = t.tooltipTexto;
+  tt.padding = 10; tt.cornerRadius = 8; tt.boxPadding = 4; tt.usePointStyle = true;
+  tt.titleFont = { family:"'IBM Plex Mono', monospace", weight:'600', size:12 };
+  tt.bodyFont = { family:"'IBM Plex Mono', monospace", size:11.5 };
+  tt.caretSize = 6;
+  tt.callbacks.title = (itens)=>{
+    const it = itens && itens[0];
+    if(!it) return '';
+    return ehParcial(it) ? it.chart.data.labels[it.dataIndex][0] + ' (parcial)' : it.label;
+  };
+  tt.callbacks.afterTitle = (itens)=>{
+    const it = itens && itens[0];
+    return it && ehParcial(it) ? (it.dataset.$notaParcial || 'Mês em andamento (parcial)') : '';
+  };
+}
+
+/* Degrades: calculados sobre a area util do grafico e reaproveitados
+   (cache por grafico) para nao recriar a cada barra/quadro. */
+function degrade(chart, chave, criar){
+  const a = chart.chartArea;
+  if(!a) return null;
+  const k = `${chave}|${Math.round(a.top)}|${Math.round(a.bottom)}`;
+  chart.$grad = chart.$grad || {};
+  if(!chart.$grad[k]) chart.$grad[k] = criar(chart.ctx, a);
+  return chart.$grad[k];
+}
+function degradeBarra(chart, cor, negativo){
+  const t = TEMAS[temaAtivo];
+  return degrade(chart, `b${cor}${negativo?'-':'+'}`, (ctx, a)=>{
+    const g = negativo ? ctx.createLinearGradient(0, a.bottom, 0, a.top)
+                       : ctx.createLinearGradient(0, a.top, 0, a.bottom);
+    g.addColorStop(0, hexA(cor, 1));
+    g.addColorStop(.55, hexA(cor, t.neon ? .72 : .85));
+    g.addColorStop(1, hexA(cor, t.alfaBaseBarra));
+    return g;
+  }) || cor;
+}
+function degradeArea(chart, cor){
+  const t = TEMAS[temaAtivo];
+  return degrade(chart, `a${cor}`, (ctx, a)=>{
+    const g = ctx.createLinearGradient(0, a.top, 0, a.bottom);
+    g.addColorStop(0, hexA(cor, t.alfaArea));
+    g.addColorStop(1, hexA(cor, 0));
+    return g;
+  }) || hexA(cor, .1);
+}
+
+/* Prepara cada grafico para o tema: barras com degrade (a cor original fica
+   em $base/$cores, que o seletor de periodo tambem recorta), linhas com area
+   em degrade quando marcadas com $area. */
+/* Rotulo do mes em andamento: ['set/26', 'parcial'] (duas linhas no eixo) */
+function rotuloParcial(rot){ return [rot, 'parcial']; }
+function ehParcial(c){
+  if(c.dataIndex === undefined) return false;
+  const l = c.chart.data.labels[c.dataIndex];
+  return Array.isArray(l) && l[1] === 'parcial';
+}
+function tematizar(cfg){
+  (cfg.data.datasets || []).forEach(ds=>{
+    const tipo = ds.type || cfg.type;
+    if(tipo === 'bar'){
+      if(Array.isArray(ds.backgroundColor)) ds.$cores = ds.backgroundColor.slice();
+      else if(typeof ds.backgroundColor === 'string') ds.$base = ds.backgroundColor;
+      else return;
+      // (a legenda pede a cor sem apontar uma barra: usa a primeira)
+      const corDe = (c)=> c.dataset.$cores ? (c.dataset.$cores[c.dataIndex] || c.dataset.$cores[0]) : c.dataset.$base;
+      ds.backgroundColor = (c)=> ehParcial(c) ? hexA(corDe(c), .16)
+        : degradeBarra(c.chart, corDe(c), typeof c.raw === 'number' && c.raw < 0);
+      ds.hoverBackgroundColor = (c)=> ehParcial(c) ? hexA(corDe(c), .32) : corDe(c);
+      // mes em andamento: barra "vazada" (so contorno), para nao parecer mes completo
+      ds.borderColor = (c)=> corDe(c);
+      ds.borderWidth = (c)=> ehParcial(c) ? 1.6 : 0;
+      ds.borderSkipped = (c)=> ehParcial(c) ? false : 'start';
+    }
+    if(tipo === 'line'){
+      const cor = ds.borderColor;
+      ds.pointHoverBackgroundColor = cor;
+      ds.pointHoverBorderColor = COR.card;
+      if(ds.$area && typeof cor === 'string'){
+        ds.fill = 'start';
+        ds.backgroundColor = (c)=> degradeArea(c.chart, cor);
+      }
+    }
+  });
+  return cfg;
+}
+
+/* Brilho (neon) / sombra (claro) desenhado por baixo de cada serie */
+const pluginFX = {
+  id:'fxPortal',
+  beforeDatasetDraw(chart, args){
+    const t = TEMAS[temaAtivo], ds = chart.data.datasets[args.index], tipo = args.meta.type;
+    let cor = tipo === 'line' ? ds.borderColor : (ds.$base || null);
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.shadowColor = typeof cor === 'string' ? hexA(cor, t.alfaBrilho) : t.glowNeutro;
+    ctx.shadowBlur = tipo === 'line' ? t.glowLinha : tipo === 'doughnut' ? t.glowRosca : t.glowBarra;
+    ctx.shadowOffsetY = t.sombraY;
+  },
+  afterDatasetDraw(chart){ chart.ctx.restore(); }
+};
+
+function mk(id, cfg){
+  const el = document.getElementById(id);
+  if(!el) return null;
+  const c = new Chart(el, tematizar(cfg));
+  charts.push(c);
+  return c;
+}
+
+configurarTemaGraficos(document.documentElement.classList.contains('tema-neon') ? 'neon' : 'claro');
+
+window.__wipeAppData = function(){
+  charts.forEach(c=>{ try{ c.destroy(); }catch(e){} });
+  charts = [];
+  appState = null;
+  tabelaMensalAtual = null;
+  document.querySelectorAll('.nota-parcial').forEach(n=>n.remove());
+  const cont = document.getElementById('contagemSetoresMensal');
+  if(cont) cont.textContent = '';
+  ['kpi-visao','kpi-entradas','kpi-saidas','kpi-fluxo','kpi-hist-administrativo','kpi-hist-operacoes','kpi-hist-tecnologia',
+   'kpi-hist-eventos','tblHistEventos','avisoHistEventos',
+   'legSetores2025','legSetores2026','legSetoresMes','avisoSetoresMes',
+   'tblSetoresMensal','avisoSetoresMensal','avisoEvolucaoEventos',
+   'tblEntradas','tblSaidas','tblFluxo','tblSetores','tblHistAdministrativo','tblHistOperacoes','tblHistTecnologia','calloutVisao'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.innerHTML = '';
+  });
+};
+
+window.__initApp = function(data){
+  // Monta rótulos de mês/ano a partir do payload decifrado (nada de datas fixas no código)
+  const mesesLabel = [];
+  const anosArr = [];
+  const nomes = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  let ano = data.dataInicio.ano, mes = data.dataInicio.mes;
+  for(let i=0;i<data.nMeses;i++){
+    mesesLabel.push(nomes[mes] + '/' + String(ano).slice(2));
+    anosArr.push(ano);
+    mes++; if(mes>11){mes=0; ano++;}
+  }
+
+  const entradas = data.entradas;
+  const saidas = data.saidas;
+  const fluxo = entradas.map((v,i)=> v - saidas[i]);
+  const entAno = totaisPorAno(entradas, anosArr);
+  const saiAno = totaisPorAno(saidas, anosArr);
+  const fluAno = totaisPorAno(fluxo, anosArr);
+  const anosUnicos = Object.keys(entAno).map(Number);
+  const setores2025 = data.setores2025;
+  const setores2026 = data.setores2026;
+  const setorEvolucao = data.setorEvolucao;
+  const setorMensalRecente = data.setorMensalRecente;
+
+  appState = {mesesLabel, anosArr, entradas, saidas, fluxo, entAno, saiAno, fluAno, anosUnicos};
+
+  /* Mes em andamento: exibido a parte (barra vazada / coluna "parcial").
+     Nao entra em nenhuma media, total anual, KPI ou variacao. */
+  const parcial = data.parcial || null;
+  const parcialSet = data.parcialSetores || null;
+  const notaAte = (ate)=> 'Mês em andamento — dados até ' + (ate || 'o último lançamento');
+  function serieComParcial(labels, serie, valor, ate){
+    const tem = parcial && valido(valor);
+    return {
+      labels: tem ? labels.concat([rotuloParcial(parcial.rotulo)]) : labels,
+      dados:  tem ? serie.concat([valor]) : serie,
+      tend:   (serieTend)=> tem ? serieTend.concat([null]) : serieTend,
+      nota:   tem ? notaAte(ate) : null
+    };
+  }
+  function notaNoGrafico(canvasId, texto){
+    const card = document.getElementById(canvasId).closest('.card');
+    if(!card || !texto) return;
+    const alvo = card.querySelector('.card-cab > div') || card;
+    const n = document.createElement('p');
+    n.className = 'hint nota-parcial';
+    n.innerHTML = '<i></i>' + texto.replace('Mês em andamento', 'Barra vazada = mês em andamento (parcial)');
+    alvo.appendChild(n);
+  }
+  const pEnt = serieComParcial(mesesLabel, entradas, parcial && parcial.entradas, parcial && parcial.ateEntradas);
+  const pSai = serieComParcial(mesesLabel, saidas, parcial && parcial.saidas, parcial && parcial.ateSaidas);
+  const temFluxoParcial = parcial && valido(parcial.entradas) && valido(parcial.saidas);
+  const pFlu = serieComParcial(mesesLabel, fluxo, temFluxoParcial ? parcial.entradas - parcial.saidas : null,
+    temFluxoParcial ? [parcial.ateEntradas, parcial.ateSaidas].filter(Boolean).sort().slice(0,1)[0] : null);
+
+  document.getElementById('asofText').textContent = `Dados até ${data.atualizadoAte}`
+    + (parcial ? ` · ${parcial.rotulo} em andamento (parcial${parcial.ateEntradas ? ', até ' + parcial.ateEntradas : ''})` : '')
+    + ` · valores em R$ · MM = milhões de Reais`;
+  const asofSetoresEl = document.getElementById('asofSetores');
+  if(asofSetoresEl) asofSetoresEl.textContent = `Dados de setores atualizados até ${data.atualizadoAteSetores}`;
+  const asofHistoricoEl = document.getElementById('asofHistorico');
+  if(asofHistoricoEl) asofHistoricoEl.textContent = `Dados atualizados até ${data.atualizadoAteSetores}`;
+
+  /* ---------- KPIs ---------- */
+  const anoCompleto = lastYearFull(entAno);
+  const entMediaCompleto = entAno[anoCompleto].soma/entAno[anoCompleto].n;
+  const entMediaAnterior = entAno[anoCompleto-1].soma/entAno[anoCompleto-1].n;
+  const entVar = (entMediaCompleto/entMediaAnterior - 1)*100;
+
+  const saiMediaCompleto = saiAno[anoCompleto].soma/saiAno[anoCompleto].n;
+  const saiMediaAnterior = saiAno[anoCompleto-1].soma/saiAno[anoCompleto-1].n;
+  const saiVar = (saiMediaCompleto/saiMediaAnterior - 1)*100;
+
+  const fluTotalCompleto = fluAno[anoCompleto].soma;
+  const fluTotalAnterior = fluAno[anoCompleto-1].soma;
+  const fluVar = (fluTotalCompleto/fluTotalAnterior - 1)*100;
+
+  const ultimoIdx = fluxo.length-1;
+  const fluUltimoMes = fluxo[ultimoIdx];
+  const fluPenultimoMes = fluxo[ultimoIdx-1];
+  const fluUltimoVar = fluPenultimoMes !== 0 ? ((fluUltimoMes/fluPenultimoMes) - 1)*100 : null;
+  const fluUltimoDeltaR = fluUltimoMes - fluPenultimoMes;
+
+  document.getElementById('calloutVisao').innerHTML =
+    `<b>Ponto de atenção:</b> o resultado operacional de ${anoCompleto} foi <b>${fmtBRL(fluTotalCompleto)}</b> (${fmtPct(fluVar)} vs. ${anoCompleto-1}). O último mês com dado disponível (${mesesLabel[ultimoIdx]}) fechou em <b>${fmtBRL(fluUltimoMes)}</b>.`;
+
+  const anoAtual = anosArr[ultimoIdx];
+  const resultadoAcumuladoAtual = fluAno[anoAtual].soma;
+
+  const entUltimoMes = entradas[ultimoIdx], entPenultimoMes = entradas[ultimoIdx-1];
+  const entUltimoVar = (entUltimoMes/entPenultimoMes - 1)*100;
+  const saiUltimoMes = saidas[ultimoIdx], saiPenultimoMes = saidas[ultimoIdx-1];
+  const saiUltimoVar = (saiUltimoMes/saiPenultimoMes - 1)*100;
+
+  renderKPIs('kpi-visao', [
+    {label:'Última entrada mensal', value:fmtBRL(entUltimoMes), delta:fmtPct(entUltimoVar), dir: entUltimoVar>=0?'good':'bad', note: mesesLabel[ultimoIdx], spark: entradas.slice(-12), sparkCor: COR.teal},
+    {label:'Última saída mensal', value:fmtBRL(saiUltimoMes), delta:fmtPct(saiUltimoVar), dir: saiUltimoVar<=0?'good':'bad', note: mesesLabel[ultimoIdx], spark: saidas.slice(-12), sparkCor: COR.coral},
+    {
+      label:'Fluxo de caixa', value:fmtBRL(fluUltimoMes),
+      delta: fluUltimoVar!==null ? `${fmtPct(fluUltimoVar)} (${fmtBRL(fluUltimoDeltaR)})` : mesesLabel[ultimoIdx],
+      dir: fluUltimoDeltaR>=0 ? 'good' : 'bad',
+      note: `${mesesLabel[ultimoIdx]} vs. ${mesesLabel[ultimoIdx-1]}`,
+      spark: fluxo.slice(-12), sparkCor: fluUltimoMes>=0 ? COR.ok : COR.coral
+    },
+    {label:`Resultado operacional acumulado ${anoAtual}`, value:fmtBRL(resultadoAcumuladoAtual), dir: resultadoAcumuladoAtual>=0?'good':'bad', note:`${fluAno[anoAtual].n} meses`,
+      spark: (()=>{ let acc=0; return fluxo.filter((_,i)=>anosArr[i]===anoAtual).map(v=> acc+=v); })(),
+      sparkCor: resultadoAcumuladoAtual>=0 ? COR.ok : COR.coral},
+  ]);
+
+  // Comparativo à média do MESMO mês-calendário nos últimos 3 anos (excluindo o próprio mês)
+  function mediaMesmoMesUltimosAnos(arr, idx, nAnos){
+    const valores = [];
+    for(let i=idx-12; i>=0 && valores.length<nAnos; i-=12){ valores.push(arr[i]); }
+    return valores.length ? {media: valores.reduce((a,b)=>a+b,0)/valores.length, n: valores.length} : null;
+  }
+  const entVsMedia3anos = mediaMesmoMesUltimosAnos(entradas, ultimoIdx, 3);
+  const entMediaAno2026 = entAno[anoAtual].soma/entAno[anoAtual].n;
+  const entPenultimoVsMedia = mediaMesmoMesUltimosAnos(entradas, ultimoIdx-1, 3);
+
+  renderKPIs('kpi-entradas', [
+    {
+      label:'Última entrada mensal', value:fmtBRL(entUltimoMes),
+      delta: entVsMedia3anos ? fmtPct((entUltimoMes/entVsMedia3anos.media - 1)*100) : fmtPct(entUltimoVar),
+      dir: (entVsMedia3anos ? (entUltimoMes/entVsMedia3anos.media - 1)*100 : entUltimoVar) >=0 ? 'good' : 'bad',
+      note: entVsMedia3anos ? `vs. média de ${mesesLabel[ultimoIdx].split('/')[0]} (últ. ${entVsMedia3anos.n} anos) · ${mesesLabel[ultimoIdx]}` : mesesLabel[ultimoIdx]
+    },
+    {label:`Média mensal ${anoAtual}`, value:fmtBRL(entMediaAno2026), delta:fmtPct(entVar), dir: entVar>=0?'good':'bad', note:`vs. média ${anoCompleto}`},
+    {
+      label:'Penúltima entrada mensal', value:fmtBRL(entPenultimoMes),
+      delta: entPenultimoVsMedia ? fmtPct((entPenultimoMes/entPenultimoVsMedia.media - 1)*100) : '—',
+      dir: entPenultimoVsMedia ? ((entPenultimoMes/entPenultimoVsMedia.media - 1)*100 >=0 ? 'good':'bad') : '',
+      note: entPenultimoVsMedia ? `vs. média de ${mesesLabel[ultimoIdx-1].split('/')[0]} (últ. ${entPenultimoVsMedia.n} anos) · ${mesesLabel[ultimoIdx-1]}` : mesesLabel[ultimoIdx-1]
+    },
+  ]);
+
+  const saiVsMedia3anos = mediaMesmoMesUltimosAnos(saidas, ultimoIdx, 3);
+  const saiMediaAno2026 = saiAno[anoAtual].soma/saiAno[anoAtual].n;
+  const saiPenultimoVsMedia = mediaMesmoMesUltimosAnos(saidas, ultimoIdx-1, 3);
+
+  renderKPIs('kpi-saidas', [
+    {
+      label:'Última saída mensal', value:fmtBRL(saiUltimoMes),
+      delta: saiVsMedia3anos ? fmtPct((saiUltimoMes/saiVsMedia3anos.media - 1)*100) : fmtPct(saiUltimoVar),
+      dir: (saiVsMedia3anos ? (saiUltimoMes/saiVsMedia3anos.media - 1)*100 : saiUltimoVar) <=0 ? 'good' : 'bad',
+      note: saiVsMedia3anos ? `vs. média de ${mesesLabel[ultimoIdx].split('/')[0]} (últ. ${saiVsMedia3anos.n} anos) · ${mesesLabel[ultimoIdx]}` : mesesLabel[ultimoIdx]
+    },
+    {label:`Média mensal ${anoAtual}`, value:fmtBRL(saiMediaAno2026), delta:fmtPct(saiVar), dir: saiVar<=0?'good':'bad', note:`vs. média ${anoCompleto}`},
+    {
+      label:'Penúltima saída mensal', value:fmtBRL(saiPenultimoMes),
+      delta: saiPenultimoVsMedia ? fmtPct((saiPenultimoMes/saiPenultimoVsMedia.media - 1)*100) : '—',
+      dir: saiPenultimoVsMedia ? ((saiPenultimoMes/saiPenultimoVsMedia.media - 1)*100 <=0 ? 'good':'bad') : '',
+      note: saiPenultimoVsMedia ? `vs. média de ${mesesLabel[ultimoIdx-1].split('/')[0]} (últ. ${saiPenultimoVsMedia.n} anos) · ${mesesLabel[ultimoIdx-1]}` : mesesLabel[ultimoIdx-1]
+    },
+  ]);
+
+  const mesesNegativos = fluxo.filter(v=>v<0).length;
+  const fluMediaAno2026 = fluAno[anoAtual].soma/fluAno[anoAtual].n;
+  renderKPIs('kpi-fluxo', [
+    {
+      label:'Fluxo — último mês', value:fmtBRL(fluUltimoMes),
+      delta: fluUltimoVar!==null ? fmtPct(fluUltimoVar) : '—', dir: fluUltimoDeltaR>=0?'good':'bad',
+      note:`${mesesLabel[ultimoIdx]} vs. ${mesesLabel[ultimoIdx-1]}`
+    },
+    {label:`Média mensal ${anoAtual}`, value:fmtBRL(fluMediaAno2026), dir: fluMediaAno2026>=0?'good':'bad', note:`${fluAno[anoAtual].n} meses`},
+    {label:`Resultado ${anoCompleto}`, value:fmtBRL(fluTotalCompleto), delta:fmtPct(fluVar), dir: fluVar>=0?'good':'bad', note:`vs. ${anoCompleto-1}`},
+    {label:'Meses com déficit', value:`${mesesNegativos} de ${fluxo.length}`, note:`${(mesesNegativos/fluxo.length*100).toFixed(0)}% do período`},
+  ]);
+
+  /* ---------- Visão Geral: gráficos ---------- */
+  mk('chartVisaoLinhas', {
+    type:'line',
+    data:{
+      labels: mesesLabel,
+      datasets:[
+        {label:'Entradas (média 12m)', data: movingAvg(entradas,12), borderColor:COR.teal, $area:true, borderWidth:2.5, pointRadius:0, tension:.3},
+        {label:'Saídas (média 12m)', data: movingAvg(saidas,12), borderColor:COR.coral, $area:true, borderWidth:2.5, pointRadius:0, tension:.3},
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index', intersect:false},
+      plugins:{ legend:{position:'top', labels:{boxWidth:12}}, tooltip:{callbacks:{label:(c)=> c.dataset.label+': '+fmtBRLc(c.parsed.y)}}, datalabels:{display:false} },
+      scales:{ x:{grid:{display:false}, ticks:{maxTicksLimit:14}}, y:{grid:{color:COR.grid}, ticks:{callback:moneyTick}} }
+    }
+  });
+
+  mk('chartVisaoAnual', {
+    type:'bar',
+    data:{
+      labels: anosUnicos.map(String),
+      datasets:[{
+        label:'Resultado operacional anual',
+        data: anosUnicos.map(a=>fluAno[a].soma),
+        backgroundColor: anosUnicos.map(a=> fluAno[a].soma>=0 ? COR.ok : COR.coral),
+        borderRadius:2,
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{label:(c)=> fmtBRLc(c.parsed.y)}}, datalabels:{display:false} },
+      scales:{ x:{grid:{display:false}}, y:{grid:{color:COR.grid}, ticks:{callback:moneyTick}} }
+    }
+  });
+
+  // Gráfico "Gastos por setor 2025 vs 2026" — agora em barras VERTICAIS (era horizontal)
+  mk('chartVisaoSetores', {
+    type:'bar',
+    data:{
+      labels: setores2026.map(s=>s.nome),
+      datasets:[
+        {label:'2025', data: setores2026.map(s=>{ const f=setores2025.find(x=>x.nome===s.nome); return f?f.valor:0; }), backgroundColor: COR.tealLt, borderRadius:2},
+        {label:'2026', data: setores2026.map(s=>s.valor), backgroundColor: COR.gold, borderRadius:2},
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{position:'top', labels:{boxWidth:12}}, tooltip:{callbacks:{label:(c)=> c.dataset.label+': '+fmtBRLc(c.parsed.y)}}, datalabels:{display:false} },
+      scales:{
+        x:{grid:{display:false}, ticks:{maxRotation:40, minRotation:0, autoSkip:false, font:{size:10}}},
+        y:{grid:{color:COR.grid}, ticks:{callback:moneyTick}}
+      }
+    }
+  });
+
+  /* ---------- Entradas ---------- */
+  mk('chartEntradasMensal', {
+    data:{ labels: pEnt.labels, datasets:[
+      {type:'bar', label:'Entradas', data: pEnt.dados, backgroundColor: COR.teal, borderRadius:1, barPercentage:.9, categoryPercentage:.9, order:2, $notaParcial: pEnt.nota},
+      {type:'line', label:'Tendência (média 6m)', data: pEnt.tend(movingAvg(entradas,6)), borderColor: COR.gold, backgroundColor:'transparent', borderWidth:2, pointRadius:0, tension:.25, order:1},
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{position:'top', labels:{boxWidth:12}}, tooltip:{callbacks:{label:(c)=> c.dataset.label+': '+fmtBRLc(c.parsed.y)}}, datalabels:{display:false} },
+      scales:{ x:{grid:{display:false}, ticks:{maxTicksLimit:16, autoSkip:true}}, y:{grid:{color:COR.grid}, ticks:{callback:moneyTick}} }
+    }
+  });
+
+  notaNoGrafico('chartEntradasMensal', pEnt.nota);
+  mk('chartEntradasAnual', {
+    type:'bar',
+    data:{
+      labels: anosUnicos.map(String),
+      datasets:[{ label:'Média mensal', data: anosUnicos.map(a=>entAno[a].soma/entAno[a].n), backgroundColor: COR.teal, borderRadius:2 }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{label:(c)=> fmtBRLc(c.parsed.y)}}, datalabels:{display:false} },
+      scales:{ x:{grid:{display:false}}, y:{grid:{color:COR.grid}, ticks:{callback:moneyTick}} }
+    }
+  });
+
+  // Média histórica por mês-calendário (jan, fev, mar... considerando todos os anos)
+  const nomesMes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  function mediaPorMesCalendario(arr){
+    const soma = new Array(12).fill(0);
+    const n = new Array(12).fill(0);
+    arr.forEach((v,i)=>{ const m = i % 12; soma[m]+=v; n[m]+=1; });
+    return soma.map((s,i)=> s/n[i]);
+  }
+  mk('chartEntradasMediaMes', {
+    type:'bar',
+    data:{
+      labels: nomesMes,
+      datasets:[{ label:'Média histórica', data: mediaPorMesCalendario(entradas), backgroundColor: COR.gold, borderRadius:2 }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{label:(c)=> fmtBRLc(c.parsed.y)}}, datalabels:{display:false} },
+      scales:{ x:{grid:{display:false}}, y:{grid:{color:COR.grid}, ticks:{callback:moneyTick}} }
+    }
+  });
+
+  function fillTable(tblId, anosList, mapa, corLogica){
+    const el = document.getElementById(tblId);
+    let prev = null;
+    let rows = anosList.map(a=>{
+      const media = mapa[a].soma/mapa[a].n;
+      let variacao = '—';
+      if(prev!==null){
+        const pct = (media/prev - 1)*100;
+        const cls = corLogica(pct);
+        variacao = `<span class="${cls}">${fmtPct(pct)}</span>`;
+      }
+      prev = media;
+      return `<tr><td>${a}${mapa[a].n<12?' (parcial, '+mapa[a].n+' meses)':''}</td><td>${fmtBRLc(media)}</td><td>${variacao}</td></tr>`;
+    }).join('');
+    el.innerHTML = `<thead><tr><th style="text-align:left">Ano</th><th>Média mensal</th><th>Variação</th></tr></thead><tbody>${rows}</tbody>`;
+  }
+  // Entradas: aumento = bom (verde), redução = ruim (vermelho) — padrão normal
+  fillTable('tblEntradas', anosUnicos, entAno, (pct)=> pct>=0 ? 'pos' : 'neg');
+  // Saídas: LÓGICA INVERTIDA — aumento de gasto = ruim (vermelho), redução = bom (verde)
+  fillTable('tblSaidas', anosUnicos, saiAno, (pct)=> pct>=0 ? 'neg' : 'pos');
+
+  /* ---------- Saídas ---------- */
+  mk('chartSaidasMensal', {
+    data:{ labels: pSai.labels, datasets:[
+      {type:'bar', label:'Saídas', data: pSai.dados, backgroundColor: COR.coral, borderRadius:1, barPercentage:.9, categoryPercentage:.9, order:2, $notaParcial: pSai.nota},
+      {type:'line', label:'Tendência (média 6m)', data: pSai.tend(movingAvg(saidas,6)), borderColor: COR.teal, backgroundColor:'transparent', borderWidth:2, pointRadius:0, tension:.25, order:1},
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{position:'top', labels:{boxWidth:12}}, tooltip:{callbacks:{label:(c)=> c.dataset.label+': '+fmtBRLc(c.parsed.y)}}, datalabels:{display:false} },
+      scales:{ x:{grid:{display:false}, ticks:{maxTicksLimit:16}}, y:{grid:{color:COR.grid}, ticks:{callback:moneyTick}} }
+    }
+  });
+
+  notaNoGrafico('chartSaidasMensal', pSai.nota);
+  mk('chartSaidasAnual', {
+    type:'bar',
+    data:{
+      labels: anosUnicos.map(String),
+      datasets:[{ label:'Média mensal', data: anosUnicos.map(a=>saiAno[a].soma/saiAno[a].n), backgroundColor: COR.coral, borderRadius:2 }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{label:(c)=> fmtBRLc(c.parsed.y)}}, datalabels:{display:false} },
+      scales:{ x:{grid:{display:false}}, y:{grid:{color:COR.grid}, ticks:{callback:moneyTick}} }
+    }
+  });
+
+  mk('chartSaidasMediaMes', {
+    type:'bar',
+    data:{
+      labels: nomesMes,
+      datasets:[{ label:'Média histórica', data: mediaPorMesCalendario(saidas), backgroundColor: COR.coral, borderRadius:2 }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{label:(c)=> fmtBRLc(c.parsed.y)}}, datalabels:{display:false} },
+      scales:{ x:{grid:{display:false}}, y:{grid:{color:COR.grid}, ticks:{callback:moneyTick}} }
+    }
+  });
+
+  /* ---------- Fluxo de caixa ---------- */
+  mk('chartFluxoMensal', {
+    data:{ labels: pFlu.labels, datasets:[
+      {type:'bar', label:'Fluxo de caixa', data: pFlu.dados, backgroundColor: pFlu.dados.map(v=> v>=0 ? COR.ok : COR.coral), borderRadius:1, barPercentage:.9, categoryPercentage:.9, order:2, $notaParcial: pFlu.nota},
+      {type:'line', label:'Tendência (média 6m)', data: pFlu.tend(movingAvg(fluxo,6)), borderColor: COR.gold, backgroundColor:'transparent', borderWidth:2, pointRadius:0, tension:.25, order:1},
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{position:'top', labels:{boxWidth:12}}, tooltip:{callbacks:{label:(c)=> c.dataset.label+': '+fmtBRLc(c.parsed.y)}}, datalabels:{display:false} },
+      scales:{ x:{grid:{display:false}, ticks:{maxTicksLimit:16}}, y:{grid:{color:COR.grid}, ticks:{callback:moneyTick}} }
+    }
+  });
+
+  notaNoGrafico('chartFluxoMensal', pFlu.nota);
+  mk('chartFluxoAnual', {
+    type:'bar',
+    data:{
+      labels: anosUnicos.map(String),
+      datasets:[{ label:'Resultado', data: anosUnicos.map(a=>fluAno[a].soma), backgroundColor: anosUnicos.map(a=>fluAno[a].soma>=0?COR.ok:COR.coral), borderRadius:2 }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{label:(c)=> fmtBRLc(c.parsed.y)}}, datalabels:{display:false} },
+      scales:{ x:{grid:{display:false}}, y:{grid:{color:COR.grid}, ticks:{callback:moneyTick}} }
+    }
+  });
+
+  // Tabela do Fluxo de Caixa: 5 casos conforme sinal, ano a ano
+  // 1) positivo -> positivo: aumentou = bom (verde) / diminuiu = ruim (vermelho)
+  // 2) negativo -> negativo: déficit encolheu (menos negativo) = bom / déficit cresceu = ruim
+  // 3) negativo -> positivo: sempre bom (saiu do déficit)
+  // 4) positivo -> negativo: sempre ruim (entrou em déficit)
+  // 5) variação ~0 (< 0,5%): neutro (cinza), sem qualificar como bom/ruim
+  // OBS: essas 5 regras foram inferidas a partir da lógica financeira padrão (resultado
+  // maior/menos-negativo = melhora); ajuste aqui se a definição de negócio for diferente.
+  (function fillFluxoTable(){
+    const el = document.getElementById('tblFluxo');
+    let prev = null;
+    let rows = anosUnicos.map(a=>{
+      const total = fluAno[a].soma;
+      let variacao = '—';
+      if(prev!==null){
+        const diff = total - prev;
+        const pctBase = Math.abs(prev) > 0.01 ? (diff/Math.abs(prev))*100 : (total===0?0:100);
+        let cls;
+        if(Math.abs(pctBase) < 0.5){
+          cls = 'neu';
+        } else if(prev < 0 && total >= 0){
+          cls = 'pos';               // saiu do déficit
+        } else if(prev >= 0 && total < 0){
+          cls = 'neg';               // entrou em déficit
+        } else if(prev >= 0 && total >= 0){
+          cls = total >= prev ? 'pos' : 'neg';   // positivo -> positivo
+        } else {
+          cls = total >= prev ? 'pos' : 'neg';   // negativo -> negativo (menos negativo = pos)
+        }
+        variacao = `<span class="${cls}">${fmtPct(pctBase)}</span>`;
+      }
+      prev = total;
+      const status = total>=0 ? '<span class="status sup">Superávit</span>' : '<span class="status def">Déficit</span>';
+      return `<tr><td>${a}${fluAno[a].n<12?' (parcial)':''}</td><td>${fmtBRL(entAno[a].soma,0)}</td><td>${fmtBRL(saiAno[a].soma,0)}</td>`
+        + `<td class="${total>=0?'pos':'neg'}">${fmtBRLc(total)}</td><td style="text-align:center">${status}</td><td>${variacao}</td></tr>`;
+    }).join('');
+    el.innerHTML = `<thead><tr><th style="text-align:left">Ano</th><th>Entradas</th><th>Saídas</th><th>Resultado</th><th style="text-align:center">Status</th><th>Variação</th></tr></thead><tbody>${rows}</tbody>`;
+  })();
+
+  /* ---------- Setores ---------- */
+  /* Chaves opcionais do payload — se o atualizar_dashboard.py ainda não as gerou,
+     os blocos correspondentes se auto-desativam e exibem um aviso explicativo. */
+  const setorMensalTodos = data.setorMensalTodos || null;  // {dataInicio,nMeses,series:{setor:[...]}}
+  const setorUltimoMes   = data.setorUltimoMes   || null;  // {rotulo:'08/2026', setores:[{nome,valor}]}
+
+  const ordenarSetores = (list) => list.slice().sort((a,b)=> b.valor - a.valor);
+
+  // Preto ou branco dentro da fatia conforme a luminância da cor de fundo
+  function corSobre(hex){
+    const r=parseInt(hex.substr(1,2),16), g=parseInt(hex.substr(3,2),16), b=parseInt(hex.substr(5,2),16);
+    return (0.299*r + 0.587*g + 0.114*b) > 145 ? '#0B1B44' : '#FFFDF9';
+  }
+
+  // Total impresso no miolo da rosca
+  const pluginTotalCentro = {
+    id:'pluginTotalCentro',
+    afterDatasetsDraw(chart){
+      const area = chart.chartArea;
+      if(!area) return;
+      const total = chart.data.datasets[0].data.reduce((s,v)=>s+v,0);
+      const cx = (area.left+area.right)/2, cy = (area.top+area.bottom)/2;
+      const ctx = chart.ctx;
+      ctx.save();
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillStyle=COR.text;
+      ctx.font="600 9px 'IBM Plex Mono', monospace";
+      ctx.fillText('TOTAL', cx, cy-13);
+      ctx.fillStyle=COR.ink;
+      if(COR.neon){ ctx.shadowColor = hexA(COR.teal, .6); ctx.shadowBlur = 10; }
+      ctx.font="600 14px 'IBM Plex Mono', monospace";
+      ctx.fillText(fmtBRL(total,0), cx, cy+4);
+      ctx.restore();
+    }
+  };
+
+  function doughnutOptions(list){
+    const total = list.reduce((s,x)=>s+x.valor,0);
+    return {
+      responsive:true, maintainAspectRatio:false,
+      cutout:'62%',
+      layout:{ padding:4 },
+      plugins:{
+        legend:{ display:false },   // a legenda ordenada em HTML substitui os rótulos soltos
+        tooltip:{ callbacks:{ label:(c)=> c.label+': '+fmtBRLc(c.parsed)+'  ('+(c.parsed/total*100).toFixed(1).replace('.',',')+'%)' } },
+        datalabels:{
+          font:{ size:12, weight:'600', family:"'IBM Plex Mono', monospace" },
+          color:(ctx)=> corSobre(ctx.dataset.backgroundColor[ctx.dataIndex]),
+          anchor:'center', align:'center',
+          display:(ctx)=> (ctx.dataset.data[ctx.dataIndex]/total*100) >= 3.5,
+          formatter:(v)=> (v/total*100).toFixed(1).replace('.',',')+'%'
+        }
+      }
+    };
+  }
+
+  // Lista ordenada abaixo de cada rosca: posição, cor, nome, valor e %
+  function renderDonutLegend(elId, list){
+    const el = document.getElementById(elId);
+    if(!el) return;
+    const total = list.reduce((s,x)=>s+x.valor,0);
+    const linhas = list.map((s,i)=>{
+      const pct = total ? (s.valor/total*100).toFixed(1).replace('.',',') : '—';
+      const cor = paletaSetores[i % paletaSetores.length];
+      return `<li>
+        <span class="rk">${i+1}</span>
+        <span class="chip" style="background:${cor}"></span>
+        <span class="nm" title="${s.nome}">${s.nome}</span>
+        <span class="vl">${fmtBRLc(s.valor)}<span class="pc">${pct}%</span></span>
+      </li>`;
+    }).join('');
+    el.innerHTML = linhas + `<li class="tot">
+        <span class="rk"></span><span></span>
+        <span class="nm">Total</span>
+        <span class="vl">${fmtBRLc(total)}</span>
+      </li>`;
+  }
+
+  function donut(canvasId, legendaId, list){
+    const ordenada = ordenarSetores(list);
+    mk(canvasId, {
+      type:'doughnut',
+      data:{ labels: ordenada.map(s=>s.nome), datasets:[{
+        data: ordenada.map(s=>s.valor),
+        backgroundColor: ordenada.map((_,i)=> paletaSetores[i % paletaSetores.length]),
+        borderColor:COR.card, borderWidth:2, hoverOffset:8, borderRadius:3
+      }]},
+      options: doughnutOptions(ordenada),
+      plugins:[pluginTotalCentro]
+    });
+    renderDonutLegend(legendaId, ordenada);
+    return ordenada;
+  }
+
+  const totalSetores2025 = setores2025.reduce((s,x)=>s+x.valor,0);
+  const totalSetores2026 = setores2026.reduce((s,x)=>s+x.valor,0);
+  const setoresVar = (totalSetores2026/totalSetores2025 - 1)*100;
+  document.getElementById('hintSetores2025').textContent = `Média mensal · total ${fmtBRLc(totalSetores2025)}`;
+  document.getElementById('hintSetores2026').textContent = `Média mensal · total ${fmtBRLc(totalSetores2026)} (${fmtPct(setoresVar)} vs. 2025)`;
+
+  donut('chartSetores2025', 'legSetores2025', setores2025);
+  donut('chartSetores2026', 'legSetores2026', setores2026);
+
+  /* ---------- Rosca do último mês fechado ---------- */
+  (function donutUltimoMes(){
+    const wrap   = document.getElementById('wrapSetoresMes');
+    const aviso  = document.getElementById('avisoSetoresMes');
+    const titulo = document.getElementById('tituloSetoresMes');
+    const hint   = document.getElementById('hintSetoresMes');
+    // Redesenho sem recarregar a pagina: desfaz o estado de uma leitura anterior
+    wrap.style.display = '';
+    hint.style.display = '';
+
+    if(!setorUltimoMes || !Array.isArray(setorUltimoMes.setores) || !setorUltimoMes.setores.length){
+      wrap.style.display = 'none';
+      hint.style.display = 'none';
+      titulo.textContent = `Composição de gastos — ${data.atualizadoAteSetores}`;
+      aviso.innerHTML = `<div class="aviso-dado">
+        <b>Dado ainda não carregado.</b><br>
+        Esta rosca mostra a distribuição por setor <b>do mês fechado</b> (não da média do ano).
+        Isso exige o rateio mensal por departamento, que vem do arquivo
+        <code>Saídas &lt;ANO&gt;.xlsx</code>.<br><br>
+        Rode <code>python atualizar_dashboard.py --recalcular-setores</code> na máquina
+        onde o <code>S:\\</code> está mapeado e o gráfico aparece automaticamente.
+      </div>`;
+      return;
+    }
+    titulo.textContent = `Composição de gastos — ${setorUltimoMes.rotulo}`;
+    const totalMes = setorUltimoMes.setores.reduce((s,x)=>s+x.valor,0);
+    hint.textContent = `Mês fechado · total ${fmtBRLc(totalMes)}`;
+    donut('chartSetoresMes', 'legSetoresMes', setorUltimoMes.setores);
+  })();
+
+  /* ---------- Evolução anual por setor ---------- */
+  (function evolucaoSetores(){
+    const cores = { 'Operações':COR.coral, 'Tecnologia':COR.gold, 'Administrativo':COR.teal, 'Eventos':COR.ok };
+    const ordem = ['Operações','Tecnologia','Administrativo','Eventos'];
+    const presentes = ordem.filter(n => Array.isArray(setorEvolucao[n]) && setorEvolucao[n].some(v=>v!==null&&v!==undefined));
+
+    document.getElementById('tituloEvolucaoSetores').textContent =
+      presentes.length > 1 ? 'Evolução — ' + presentes.slice(0,-1).join(', ') + ' e ' + presentes[presentes.length-1]
+      : presentes.length ? 'Evolução — ' + presentes[0] : 'Evolução por setor (sem dados de setores na base)';
+
+    mk('chartSetoresEvolucao', {
+      type:'line',
+      data:{
+        labels: setorEvolucao.labels,
+        datasets: presentes.map(n=>({
+          label:n, data:setorEvolucao[n], borderColor:cores[n], $area:true,
+          borderWidth:2.5, tension:.3, spanGaps:true,
+          pointRadius:3.5, pointBackgroundColor:COR.card, pointBorderColor:cores[n], pointBorderWidth:2
+        }))
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{position:'top', labels:{boxWidth:12}}, tooltip:{callbacks:{label:(c)=> c.dataset.label+': '+fmtBRLc(c.parsed.y)}}, datalabels:{display:false} },
+        scales:{ x:{grid:{display:false}}, y:{grid:{color:COR.grid}, ticks:{callback:moneyTick}} }
+      }
+    });
+
+    if(presentes.indexOf('Eventos') === -1){
+      document.getElementById('avisoEvolucaoEventos').innerHTML = `<div class="aviso-dado">
+        <b>Eventos sem dados.</b> Não há lançamentos do setor Eventos nas planilhas de saídas lidas.
+      </div>`;
+    }
+  })();
+
+  (function fillSetoresTable(){
+    const el = document.getElementById('tblSetores');
+    // Se o ledger completo (Saídas <ANO>.xlsx) já foi processado, a tabela usa TODOS os
+    // setores dos dois anos — não só o top 10 das roscas — evitando linhas com "—".
+    const comp = data.setoresCompleto || null;
+    const lista2025 = (comp && comp['2025']) || setores2025;
+    const lista2026 = (comp && comp['2026']) || setores2026;
+    const nomes = Array.from(new Set([...lista2025.map(s=>s.nome), ...lista2026.map(s=>s.nome)]));
+    let rows = nomes.map(n=>{
+      const v25 = lista2025.find(s=>s.nome===n);
+      const v26 = lista2026.find(s=>s.nome===n);
+      const a = v25?v25.valor:0, b = v26?v26.valor:0;
+      let variacao = '—';
+      if(a>0 && b>0){
+        const pct = (b/a - 1)*100;
+        variacao = `<span class="${pct>=0?'neg':'pos'}">${fmtPct(pct)}</span>`;
+      }
+      return {n, a, b, html:`<tr><td>${n}</td><td>${a?fmtBRLc(a):'—'}</td><td>${b?fmtBRLc(b):'—'}</td><td>${variacao}</td></tr>`};
+    });
+    rows.sort((x,y)=> (y.b||y.a) - (x.b||x.a));   // ordenado do maior gasto para o menor
+    el.innerHTML = `<thead><tr><th style="text-align:left">Setor</th><th>2025</th><th>2026</th><th>Variação</th></tr></thead><tbody>${rows.map(r=>r.html).join('')}</tbody>`;
+  })();
+
+  /* ---------- Tabela: evolução mensal por setor (ano corrente) ---------- */
+  (function tabelaSetoresMensal(){
+    const tbl   = document.getElementById('tblSetoresMensal');
+    const aviso = document.getElementById('avisoSetoresMensal');
+    const hint  = document.getElementById('hintSetoresMensal');
+    const anoAlvo = parseInt(data.atualizadoAteSetores.split('/')[1], 10);
+    document.getElementById('tituloSetoresMensal').textContent = `Tabela — evolução mensal por setor (${anoAlvo})`;
+    // Redesenho sem recarregar a pagina: desfaz o estado de uma leitura anterior
+    tbl.closest('.tbl-scroll').style.display = '';
+    hint.style.display = '';
+
+    if(!setorMensalTodos || !setorMensalTodos.series){
+      tbl.closest('.tbl-scroll').style.display = 'none';
+      hint.style.display = 'none';
+      aviso.innerHTML = `<div class="aviso-dado">
+        <b>Dado ainda não carregado.</b><br>
+        Esta tabela abre o gasto de <b>cada setor mês a mês</b> em ${anoAlvo}. Ela depende da
+        planilha de saídas desse ano (ex.: <code>Saidas_${anoAlvo}.xlsx</code>) na pasta da base.
+      </div>`;
+      return;
+    }
+
+    const nomesMes = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const di = setorMensalTodos.dataInicio;
+    const base = (anoAlvo - di.ano)*12 - di.mes;
+
+    const colunas = [];
+    for(let m=0; m<12; m++){
+      const i = base + m;
+      if(i < 0 || i >= setorMensalTodos.nMeses) continue;
+      const temDado = Object.keys(setorMensalTodos.series)
+        .some(k => { const v = setorMensalTodos.series[k][i]; return v!==null && v!==undefined; });
+      if(temDado) colunas.push({ idx:i, rot: nomesMes[m] + '/' + String(anoAlvo).slice(2) });
+    }
+    if(!colunas.length){
+      tbl.closest('.tbl-scroll').style.display = 'none';
+      aviso.innerHTML = `<div class="aviso-dado">Sem meses de ${anoAlvo} na série mensal por setor.</div>`;
+      return;
+    }
+
+    const linhas = Object.keys(setorMensalTodos.series).map(nome=>{
+      const vals = colunas.map(c=>{
+        const v = setorMensalTodos.series[nome][c.idx];
+        return (v===null || v===undefined) ? null : v;
+      });
+      // O total do ano nao e mais exibido, mas continua definindo quais setores
+      // entram na tabela e a ordem (do maior para o menor gasto), como antes.
+      const total = vals.filter(v=>v!==null).reduce((s,v)=>s+v,0);
+      return { nome, vals, total };
+    }).filter(l=> l.total !== 0)
+      .sort((a,b)=> b.total - a.total);
+
+    /* Coluna "Variacao": coerente com a leitura mes a mes da tabela, compara o
+       ultimo mes exibido com o mes imediatamente anterior (mesma regra dos KPIs
+       "Ultimo mes" das demais abas). Por ser gasto, aumento = vermelho e
+       reducao = verde, como na tabela de media por setor. Sem base de
+       comparacao (mes anterior vazio/zero, mes atual vazio ou so um mes no
+       ano) exibe "—". */
+    const iUlt = colunas.length - 1, iAnt = colunas.length - 2;
+    const rotUlt = colunas[iUlt].rot, rotAnt = iAnt >= 0 ? colunas[iAnt].rot : null;
+    function pctMensal(atual, anterior){
+      if(iAnt < 0 || atual===null || anterior===null || !anterior) return null;
+      return (atual/anterior - 1)*100;
+    }
+    function variacaoMensal(atual, anterior){
+      const pct = pctMensal(atual, anterior);
+      if(pct === null) return '—';
+      return `<span class="${pct>=0?'neg':'pos'}">${fmtPct(pct)}</span>`;
+    }
+    const tituloVar = rotAnt
+      ? `Variação percentual de ${rotUlt} em relação a ${rotAnt}`
+      : `Sem mês anterior em ${anoAlvo} para comparar`;
+
+    // Coluna do mes em andamento (so se for do mesmo ano da tabela): exibida,
+    // mas fora da Variacao e de qualquer calculo
+    const colP = (parcialSet && parcialSet.ano === anoAlvo) ? parcialSet : null;
+    const vParcial = (nome)=> colP && valido(colP.valores[nome]) ? colP.valores[nome] : null;
+    const tituloP = colP ? notaAte(colP.ate) + ' · não entra na Variação' : '';
+    hint.innerHTML = `Gasto por setor, mês a mês · ${colunas.length} ${colunas.length===1?'mês':'meses'} fechados de ${anoAlvo} (jan–${rotUlt})`
+      + (colP ? ` · <i>${colP.rotulo} em andamento${colP.ate ? ' (até ' + colP.ate + ')' : ''}, fora da Variação</i>` : '')
+      + (rotAnt ? ` · <b>Variação</b> = ${rotUlt} vs. ${rotAnt} (<span class="neg">verm.</span> = aumento · <span class="pos">verde</span> = redução)` : '');
+
+    const thP = colP ? `<th scope="col" class="col-parcial" title="${tituloP}">${colP.rotulo} (parcial)</th>` : '';
+    const tdP = (v)=> colP ? `<td class="col-parcial" title="${tituloP}">${v===null?'—':fmtBRL(v,0)}</td>` : '';
+    const thMeses = colunas.map(c=>`<th scope="col">${c.rot}</th>`).join('') + thP;
+    const corpo = linhas.map(l=>{
+      const tds = l.vals.map(v=> `<td>${v===null?'—':fmtBRL(v,0)}</td>`).join('') + tdP(vParcial(l.nome));
+      return `<tr><td>${l.nome}</td>${tds}<td class="col-variacao">${variacaoMensal(l.vals[iUlt], iAnt>=0 ? l.vals[iAnt] : null)}</td></tr>`;
+    }).join('');
+
+    const somas = colunas.map((c,ci)=> linhas.reduce((acc,l)=> acc + (l.vals[ci]||0), 0));
+    const somaP = colP ? linhas.reduce((acc,l)=> acc + (vParcial(l.nome)||0), 0) : null;
+    const totCol = somas.map(s=> `<td>${fmtBRL(s,0)}</td>`).join('') + tdP(somaP);
+
+    tbl.innerHTML = `<thead><tr><th scope="col" style="text-align:left">Setor</th>${thMeses}<th scope="col" class="col-variacao" title="${tituloVar}">Variação</th></tr></thead>`
+      + `<tbody>${corpo}<tr class="linha-total"><td>Total</td>${totCol}<td class="col-variacao">${variacaoMensal(somas[iUlt], iAnt>=0 ? somas[iAnt] : null)}</td></tr></tbody>`;
+
+    // Guarda os numeros (sem formatacao) para o "Exportar CSV"
+    tabelaMensalAtual = {
+      ano: anoAlvo, meses: colunas.map(c=>c.rot),
+      linhas: linhas.map(l=>({ nome:l.nome, vals:l.vals, parcial: vParcial(l.nome), pct: pctMensal(l.vals[iUlt], iAnt>=0 ? l.vals[iAnt] : null) })),
+      somas, somaParcial: somaP, pctTotal: pctMensal(somas[iUlt], iAnt>=0 ? somas[iAnt] : null),
+      rotParcial: colP ? `${colP.rotulo} (parcial${colP.ate ? ' até ' + colP.ate : ''})` : null
+    };
+    aplicarFiltroMensal();
+    // Abre mostrando os meses mais recentes (inclui a coluna parcial);
+    // a coluna "Setor" fica fixa a esquerda e a "Variacao" a direita.
+    tbl.closest('.tbl-scroll').dataset.rolarFim = '1';
+    requestAnimationFrame(rolarMensalAoFim);
+  })();
+
+  /* ---------- Histórico por Setor (nova aba) — agora com série mensal completa ---------- */
+  const setorMensal = data.setorMensal;
+  const setorMesesLabel = [];
+  (function(){
+    const nomes = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    let ano = setorMensal.dataInicio.ano, mes = setorMensal.dataInicio.mes;
+    for(let i=0;i<setorMensal.nMeses;i++){
+      setorMesesLabel.push(nomes[mes] + '/' + String(ano).slice(2));
+      mes++; if(mes>11){mes=0; ano++;}
+    }
+  })();
+
+  function buildHistChart(chartId, nomeSetor, serieMensal, cor){
+    const vP = parcialSet ? parcialSet.valores[nomeSetor] : null;
+    const temP = parcialSet && valido(vP);
+    const nota = temP ? notaAte(parcialSet.ate) : null;
+    mk(chartId, {
+      data:{ labels: temP ? setorMesesLabel.concat([rotuloParcial(parcialSet.rotulo)]) : setorMesesLabel, datasets:[
+        {type:'bar', label: nomeSetor, data: temP ? serieMensal.concat([vP]) : serieMensal, backgroundColor: cor, borderRadius:1, barPercentage:.9, categoryPercentage:.9, order:2, $notaParcial: nota},
+        {type:'line', label:'Tendência (média 6m)', data: temP ? movingAvg(serieMensal,6).concat([null]) : movingAvg(serieMensal,6), borderColor: COR.gold, backgroundColor:'transparent', borderWidth:2, pointRadius:0, tension:.25, order:1, spanGaps:true},
+      ]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{position:'top', labels:{boxWidth:12}}, tooltip:{callbacks:{label:(c)=> c.dataset.label+': '+fmtBRLc(c.parsed.y)}}, datalabels:{display:false} },
+        scales:{ x:{grid:{display:false}, ticks:{maxTicksLimit:16}}, y:{grid:{color:COR.grid}, ticks:{callback:moneyTick}} }
+      }
+    });
+    notaNoGrafico(chartId, nota);
+  }
+
+  function histKPIs(containerKpiId, serieMensal, anos, seriesAnual){
+    const idx = serieMensal.length-1;
+    const ultimoMes = serieMensal[idx], penultimoMes = serieMensal[idx-1];
+    // So calcula a variacao se os DOIS meses tem dado (mes vazio nao e zero)
+    const varMes = (valido(ultimoMes) && valido(penultimoMes) && penultimoMes) ? (ultimoMes/penultimoMes - 1)*100 : null;
+    const ultimoAno = seriesAnual[seriesAnual.length-1];
+    const penultimoAno = seriesAnual[seriesAnual.length-2];
+    /*ajuste-ano-sem-dado*/
+    const _semBase = (penultimoAno === null || penultimoAno === undefined || !penultimoAno);
+    const varAno = (_semBase || !valido(ultimoAno)) ? null : (ultimoAno/penultimoAno - 1)*100;
+    renderKPIs(containerKpiId, [
+      {label: anos.length ? `Média mensal ${anos[anos.length-1]}` : 'Média mensal', value:fmtBRL(ultimoAno), delta: varAno===null?null:fmtPct(varAno), dir: varAno===null?'':(varAno<=0?'good':'bad'), note: varAno===null?'':`vs. ${anos[anos.length-2]}`},
+      {label:'Último mês', value:fmtBRL(ultimoMes), delta: varMes===null?null:fmtPct(varMes), dir: varMes===null?'':(varMes<=0?'good':'bad'),
+       note: varMes===null ? `${setorMesesLabel[idx]} sem lançamentos deste setor` : setorMesesLabel[idx]+' vs. '+setorMesesLabel[idx-1]},
+    ]);
+  }
+
+  function histTable(tblId, anosList, seriesAnual){
+    const el = document.getElementById(tblId);
+    if(!el) return;
+    let prev = null;
+    let rows = anosList.map((a,i)=>{
+      const media = seriesAnual[i];
+      if(media===null || media===undefined){ return `<tr><td>${a}</td><td>—</td><td>—</td></tr>`; }
+      let variacao = '—';
+      if(prev!==null){
+        const pct = (media/prev - 1)*100;
+        variacao = `<span class="${pct>=0?'neg':'pos'}">${fmtPct(pct)}</span>`;
+      }
+      prev = media;
+      return `<tr><td>${a}</td><td>${fmtBRLc(media)}</td><td>${variacao}</td></tr>`;
+    }).join('');
+    el.innerHTML = `<thead><tr><th style="text-align:left">Ano</th><th>Média mensal</th><th>Variação</th></tr></thead><tbody>${rows}</tbody>`;
+  }
+
+  histKPIs('kpi-hist-administrativo', setorMensal['Administrativo'], setorEvolucao.labels, setorEvolucao['Administrativo']);
+  buildHistChart('chartHistAdministrativo', 'Administrativo', setorMensal['Administrativo'], COR.teal);
+  histTable('tblHistAdministrativo', setorEvolucao.labels, setorEvolucao['Administrativo']);
+
+  histKPIs('kpi-hist-operacoes', setorMensal['Operações'], setorEvolucao.labels, setorEvolucao['Operações']);
+  buildHistChart('chartHistOperacoes', 'Operações', setorMensal['Operações'], COR.coral);
+  histTable('tblHistOperacoes', setorEvolucao.labels, setorEvolucao['Operações']);
+
+  histKPIs('kpi-hist-tecnologia', setorMensal['Tecnologia'], setorEvolucao.labels, setorEvolucao['Tecnologia']);
+  buildHistChart('chartHistTecnologia', 'Tecnologia', setorMensal['Tecnologia'], COR.gold);
+  histTable('tblHistTecnologia', setorEvolucao.labels, setorEvolucao['Tecnologia']);
+
+  /* Eventos — mesmos gráficos dos demais setores, se a série mensal existir */
+  (function histEventos(){
+    const serie = setorMensal['Eventos'];
+    const anual = setorEvolucao['Eventos'];
+    const row   = document.getElementById('rowHistEventos');
+    const aviso = document.getElementById('avisoHistEventos');
+
+    if(!Array.isArray(serie) || !serie.some(v=>v!==null&&v!==undefined)){
+      row.style.display = 'none';
+      aviso.innerHTML = `<div class="aviso-dado">
+        <b>Série mensal de Eventos ainda não carregada.</b><br>
+        A série é calculada agrupando a coluna <code>Departamento</code> das planilhas de saídas por mês.
+        Quando houver lançamentos desse setor, os gráficos e a tabela aparecem sozinhos.
+      </div>`;
+      return;
+    }
+    row.style.display = '';
+    if(Array.isArray(anual) && anual.some(v=>v!==null&&v!==undefined)){
+      histKPIs('kpi-hist-eventos', serie, setorEvolucao.labels, anual);
+      histTable('tblHistEventos', setorEvolucao.labels, anual);
+    }
+    buildHistChart('chartHistEventos', 'Eventos', serie, COR.ok);
+  })();
+
+  /* ---------- Periodo escolhido nos graficos mensais (mantido ao atualizar) ---------- */
+  document.querySelectorAll('.periodo').forEach(pr=>{
+    const ativo = pr.querySelector('button.ativo');
+    if(ativo && +ativo.dataset.meses) aplicarPeriodo(pr.dataset.chart, +ativo.dataset.meses);
+  });
+
+  /* ---------- Navegação por abas (bind único) ---------- */
+  if(!tabsBound){
+    tabsBound = true;
+    document.getElementById('tabs').addEventListener('click', (e)=>{
+      const btn = e.target.closest('button[data-tab]');
+      if(!btn) return;
+      document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('section.panel').forEach(p=>p.classList.remove('active'));
+      document.getElementById('panel-'+btn.dataset.tab).classList.add('active');
+      document.getElementById('migalhaGrupo').textContent = btn.dataset.grupo || 'Painel';
+      document.getElementById('migalhaSecao').textContent = btn.textContent.trim();
+      document.body.classList.remove('menu-aberto');
+      window.scrollTo({top:0});
+      if(btn.dataset.tab === 'setores') requestAnimationFrame(rolarMensalAoFim);
+    });
+  }
+};
+
+/* Ponto unico para (re)desenhar o dashboard: usado na abertura e sempre que a
+   base e (re)lida na area "Base de dados". Limpa os graficos anteriores antes
+   de desenhar, entao pode ser chamado quantas vezes for preciso sem recarregar
+   a pagina. Com dados = null mostra o aviso de base nao carregada. */
+window.__renderDashboard = function(dados){
+  window.__wipeAppData();
+  window.__erroDashboard = null;
+  document.body.classList.remove('base-ok');
+  if(!dados){
+    document.body.classList.add('sem-base');
+    return false;
+  }
+  document.body.classList.remove('sem-base');
+  try{
+    window.__initApp(dados);
+    document.body.classList.add('base-ok');
+    return true;
+  }catch(e){
+    // Mesmo comportamento de antes (o que ja foi desenhado continua na tela),
+    // mas agora o problema e informado na area "Base de dados".
+    console.error('Falha ao montar o dashboard com a base lida:', e);
+    window.__erroDashboard = (e && e.message) ? e.message : String(e);
+    return false;
+  }
+};
+
+/* ---------- Seletor de periodo (12m / 24m / 5 anos / Tudo) ----------
+   Recorta so a JANELA exibida: medias moveis e cores sao calculadas sobre a
+   serie completa e depois fatiadas, entao os valores nao mudam. */
+function aplicarPeriodo(canvasId, meses){
+  const ch = window.Chart && Chart.getChart(canvasId);
+  if(!ch) return;
+  if(!ch.$completo){
+    ch.$completo = {
+      labels: ch.data.labels.slice(),
+      sets: ch.data.datasets.map(d=>({ data: d.data.slice(),
+        bg: Array.isArray(d.backgroundColor) ? d.backgroundColor.slice() : null,
+        cores: Array.isArray(d.$cores) ? d.$cores.slice() : null }))
+    };
+  }
+  const c = ch.$completo, ini = meses > 0 ? Math.max(0, c.labels.length - meses) : 0;
+  ch.data.labels = c.labels.slice(ini);
+  ch.data.datasets.forEach((d,i)=>{
+    d.data = c.sets[i].data.slice(ini);
+    if(c.sets[i].bg) d.backgroundColor = c.sets[i].bg.slice(ini);
+    if(c.sets[i].cores) d.$cores = c.sets[i].cores.slice(ini);
+  });
+  ch.update('none');
+}
+document.addEventListener('click', (e)=>{
+  const b = e.target.closest('.periodo button');
+  if(!b) return;
+  const pr = b.closest('.periodo');
+  pr.querySelectorAll('button').forEach(x=>x.classList.toggle('ativo', x===b));
+  aplicarPeriodo(pr.dataset.chart, +b.dataset.meses);
+});
+
+/* A tabela mensal abre mostrando os meses mais recentes. Enquanto a aba
+   esta escondida a tabela nao tem largura, entao a rolagem e feita quando
+   ela aparece -- uma vez por leitura, sem atrapalhar a rolagem do usuario. */
+function rolarMensalAoFim(){
+  const r = document.querySelector('#tblSetoresMensal') && document.querySelector('#tblSetoresMensal').closest('.tbl-scroll');
+  if(!r || r.dataset.rolarFim !== '1' || !r.clientWidth) return;
+  r.scrollLeft = r.scrollWidth;
+  delete r.dataset.rolarFim;
+}
+
+/* ---------- Filtro de setor da tabela mensal ---------- */
+function semAcento(t){ return String(t).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase(); }
+function aplicarFiltroMensal(){
+  const tbl = document.getElementById('tblSetoresMensal');
+  const inp = document.getElementById('filtroSetorMensal');
+  const cont = document.getElementById('contagemSetoresMensal');
+  const linhas = tbl ? tbl.querySelectorAll('tbody tr:not(.linha-total)') : [];
+  const q = semAcento((inp && inp.value || '').trim());
+  let vis = 0;
+  linhas.forEach(tr=>{
+    const ok = !q || semAcento(tr.cells[0].textContent).includes(q);
+    tr.style.display = ok ? '' : 'none';
+    if(ok) vis++;
+  });
+  if(cont) cont.textContent = !linhas.length ? '' : (q
+    ? `Exibindo ${vis} de ${linhas.length} setores (a linha Total considera todos)`
+    : `Exibindo ${linhas.length} setores`);
+}
+document.getElementById('filtroSetorMensal').addEventListener('input', aplicarFiltroMensal);
+
+/* ---------- Exportar CSV da tabela mensal (abre direto no Excel pt-BR) ---------- */
+document.getElementById('btnCsvMensal').addEventListener('click', ()=>{
+  const t = tabelaMensalAtual;
+  if(!t) return;
+  const num = (v, casas)=> (v===null || v===undefined) ? '' : v.toFixed(casas).replace('.', ',');
+  const esc = (x)=> /[;"\n]/.test(x) ? `"${String(x).replace(/"/g,'""')}"` : x;
+  const cP = t.rotParcial ? [t.rotParcial] : [];
+  const linhas = [['Setor', ...t.meses, ...cP, 'Variação (%)'].map(esc).join(';')];
+  t.linhas.forEach(l=> linhas.push([esc(l.nome), ...l.vals.map(v=>num(v,2)), ...(t.rotParcial ? [num(l.parcial,2)] : []), num(l.pct,1)].join(';')));
+  linhas.push(['Total', ...t.somas.map(v=>num(v,2)), ...(t.rotParcial ? [num(t.somaParcial,2)] : []), num(t.pctTotal,1)].join(';'));
+  const blob = new Blob(['\ufeff' + linhas.join('\r\n')], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `evolucao_mensal_setores_${t.ano}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+});
+
+/* ---------- Tema (Neon / Claro): troca na hora, sem recarregar ----------
+   Redesenha os graficos com a nova paleta; a escolha fica salva neste
+   computador. */
+window.__aplicarTema = function(nome){
+  nome = nome === 'neon' ? 'neon' : 'claro';
+  const html = document.documentElement;
+  html.classList.toggle('tema-neon', nome === 'neon');
+  html.classList.toggle('tema-claro', nome === 'claro');
+  try{ localStorage.setItem('portal_tema_v2', nome); }catch(e){}
+  configurarTemaGraficos(nome);
+  const app = document.getElementById('appContent');
+  if(app.style.display === 'block' && window.DADOS_DASHBOARD && window.DADOS_DASHBOARD.dados){
+    window.__renderDashboard(JSON.parse(JSON.stringify(window.DADOS_DASHBOARD.dados)));
+  }
+};
+document.getElementById('btnTema').addEventListener('click', ()=>{
+  window.__aplicarTema(temaAtivo === 'neon' ? 'claro' : 'neon');
+});
+
+/* ---------- Menu lateral no celular/tablet ---------- */
+document.getElementById('btnMenu').addEventListener('click', ()=> document.body.classList.toggle('menu-aberto'));
+document.getElementById('veuMenu').addEventListener('click', ()=> document.body.classList.remove('menu-aberto'));
+
+if(window.Chart && window.ChartDataLabels){
+  Chart.register(window.ChartDataLabels);
+  Chart.register(pluginFX);
+}
+
+})();
+</script>
+<script src="base-local.js"></script>
+<script>
+/* Abre direto o painel (sem autenticacao). Registrado depois do base-local.js para
+   rodar apos a montagem da area "Base de dados". */
+document.addEventListener("DOMContentLoaded", function(){
+  window.__entrarComBase(baseCarregada() ? JSON.parse(JSON.stringify(window.DADOS_DASHBOARD.dados)) : null);
+});
+</script>
+</body>
+</html>

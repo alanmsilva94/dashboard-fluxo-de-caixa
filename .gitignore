@@ -1,0 +1,27 @@
+# Bases reais (nunca publicar)
+bd/
+dados.js
+semente.js
+
+# Planilhas fora da pasta de exemplo
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+!bd_exemplo/**/*.xlsx
+
+# Segredos
+.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Sistema / editor
+.DS_Store
+Thumbs.db
+~$*
+.vscode/
+.idea/
